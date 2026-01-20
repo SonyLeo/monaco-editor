@@ -21,24 +21,24 @@ export function shouldTriggerCompletion(params: TriggerParams): boolean {
   const trimmedLine = beforeCursor.trim();
 
   // 1. 避免在注释中触发
-  if (isInComment(beforeCursor, text)) {
-    return false;
-  }
+  // if (isInComment(beforeCursor, text)) {
+  //   return false;
+  // }
 
-  // 2. 避免在普通字符串中触发（但允许模板字符串）
-  if (isInString(beforeCursor) && !isInTemplateString(beforeCursor)) {
-    return false;
-  }
+  // // 2. 避免在普通字符串中触发（但允许模板字符串）
+  // if (isInString(beforeCursor) && !isInTemplateString(beforeCursor)) {
+  //   return false;
+  // }
 
   // 3. 代码太短不触发（降低阈值）
-  if (text.trim().length < 5) {
+  if (text.trim().length < 2) {
     return false;
   }
 
-  // 4. 完全空行不触发
-  if (trimmedLine.length === 0) {
-    return false;
-  }
+  // // 4. 完全空行不触发
+  // if (trimmedLine.length === 0) {
+  //   return false;
+  // }
 
   // 5. 分号后不触发（语句已结束）
   if (isAfterStatementEnd(beforeCursor)) {

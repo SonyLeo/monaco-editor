@@ -36,9 +36,8 @@ export function createCompletionCallbacks(isAIThinking: Ref<boolean>) {
       }
     },
 
-    onError: (error: Error) => {
+    onError: (_error: Error) => {
       isAIThinking.value = false;
-      console.error('❌ 补全错误:', error);
     },
   };
 }

@@ -15,6 +15,12 @@ export const DEEPSEEK_CONFIG = {
   DEFAULT_TEMPERATURE: 0.05,
   FREQUENCY_PENALTY: 0.3,
   PRESENCE_PENALTY: 0.2,
+  
+  // FIM (Fill-In-the-Middle) 优化配置
+  FIM: {
+    MAX_PREFIX_LINES: 100,
+    MAX_SUFFIX_LINES: 50,
+  },
 };
 
 /**

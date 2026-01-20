@@ -1,0 +1,68 @@
+/**
+ * Next Edit Suggestion 样式
+ */
+
+/* Glyph 箭头 - 金色圆点 */
+.next-edit-glyph-arrow {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  background: radial-gradient(circle, #ffd700 0%, #ffb700 100%);
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 0 8px rgba(255, 215, 0, 0.6);
+  animation: pulse-glow 2s ease-in-out infinite;
+  margin-left: 2px;
+  margin-top: 3px;
+}
+
+.next-edit-glyph-arrow:hover {
+  background: radial-gradient(circle, #ffed4e 0%, #ffd700 100%);
+  box-shadow: 0 0 12px rgba(255, 215, 0, 0.9);
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 0 8px rgba(255, 215, 0, 0.6);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.15);
+    box-shadow: 0 0 16px rgba(255, 215, 0, 0.9);
+  }
+}
+
+/* Ghost Text */
+.next-edit-ghost-text {
+  color: #6a9955;
+  font-style: italic;
+  opacity: 0.5;
+}
+
+.next-edit-ghost-text-delete {
+  color: #f48771;
+  font-style: italic;
+  opacity: 0.6;
+}
+
+/* 高亮建议行 */
+.next-edit-highlight-line {
+  background-color: rgba(255, 215, 0, 0.08);
+  border-left: 2px solid #ffd700;
+}
+
+/* 高亮要替换的内容 */
+.next-edit-highlight-replace {
+  background-color: rgba(255, 193, 7, 0.15);
+  border-bottom: 2px solid #ffc107;
+}
+
+/* 高亮要删除的内容 */
+.next-edit-highlight-delete {
+  background-color: rgba(244, 135, 113, 0.15);
+  border-bottom: 2px solid #f48771;
+  text-decoration: line-through;
+  opacity: 0.7;
+}

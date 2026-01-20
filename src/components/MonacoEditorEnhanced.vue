@@ -25,6 +25,11 @@
         Tab 键接受补全 | Esc 取消补全 | Alt+\ 手动触发补全
       </p>
       <p>
+        🔮
+        <strong>Next Edit：</strong>
+        Alt+Enter 导航/接受建议 | Esc 取消建议
+      </p>
+      <p>
         🎯
         <strong>当前语言：</strong>
         {{ language }}
@@ -37,7 +42,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount } from "vue";
 import * as monaco from "monaco-editor";
-import { registerCompletion } from "monacopilot";
+import { registerCompletion, type CompletionRegistration } from "monacopilot";
 import {
   API_ENDPOINTS,
   API_CONFIG,
@@ -47,30 +52,36 @@ import {
 import { shouldTriggerCompletion } from "../utils/completionTrigger";
 import { createCompletionCallbacks } from "../utils/completionCallbacks";
 import { requestManager } from "../utils/requestManager";
+import { EditHistoryTracker } from "../utils/editHistoryTracker";
+import { NextEditSuggestionManager } from "../utils/nextEditSuggestionManager";
+import "../styles/nextEditSuggestion.css";
 
 const editorContainer = ref<HTMLElement | null>(null);
 const isServerHealthy = ref(false);
 const isAIThinking = ref(false);
 const language = ref<string>(EDITOR_CONFIG.DEFAULT_LANGUAGE);
-const filename = ref<string>('untitled.js');
-const aiProvider = ref<string>('未知');
-
+const filename = ref<string>("untitled.js");
+const aiProvider = ref<string>("未知");
+  
+let completion: null | CompletionRegistration = null;
 let editor: monaco.editor.IStandaloneCodeEditor | null = null;
+let editHistoryTracker: EditHistoryTracker | null = null;
+let nextEditManager: NextEditSuggestionManager | null = null;
 
 /**
  * 从编辑器获取文件信息
  */
 const updateFileContext = () => {
   if (!editor) return;
-  
+
   const model = editor.getModel();
   if (!model) return;
-  
+
   // 获取文件路径
   const uri = model.uri;
-  const path = uri.path || 'untitled.js';
-  filename.value = path.split('/').pop() || 'untitled.js';
-  
+  const path = uri.path || "untitled.js";
+  filename.value = path.split("/").pop() || "untitled.ts";
+
   // 获取语言
   const lang = model.getLanguageId();
   language.value = lang;
@@ -82,18 +93,19 @@ const checkServerHealth = async () => {
     const response = await fetch(API_ENDPOINTS.HEALTH);
     const data = await response.json();
     isServerHealthy.value = response.ok && data.status === "ok";
-    
+
     // 获取 AI 提供商信息
     if (data.provider) {
-      aiProvider.value = data.provider === 'qwen-coder' 
-        ? 'Qwen Coder' 
-        : data.provider === 'deepseek-coder'
-        ? 'DeepSeek Coder'
-        : data.provider;
+      aiProvider.value =
+        data.provider === "qwen-coder"
+          ? "Qwen Coder"
+          : data.provider === "deepseek-coder"
+            ? "DeepSeek Coder"
+            : data.provider;
     }
   } catch (error) {
     isServerHealthy.value = false;
-    aiProvider.value = '未连接';
+    aiProvider.value = "未连接";
     console.error("❌ 服务器健康检查失败:", error);
   }
 };
@@ -107,7 +119,7 @@ onMounted(() => {
   // 定时检查服务器状态
   const healthCheckInterval = setInterval(
     checkServerHealth,
-    API_CONFIG.HEALTH_CHECK_INTERVAL
+    API_CONFIG.HEALTH_CHECK_INTERVAL,
   );
 
   // 创建 Monaco Editor 实例
@@ -141,7 +153,8 @@ const config = {
     tabSize: EDITOR_CONFIG.TAB_SIZE,
     suggestOnTriggerCharacters: EDITOR_CONFIG.SUGGEST_ON_TRIGGER_CHARACTERS,
     quickSuggestions: EDITOR_CONFIG.QUICK_SUGGESTIONS,
-    wordBasedSuggestions: EDITOR_CONFIG.WORD_BASED_SUGGESTIONS
+    wordBasedSuggestions: EDITOR_CONFIG.WORD_BASED_SUGGESTIONS,
+    glyphMargin: EDITOR_CONFIG.GLYPH_MARGIN, // 🆕 启用 glyph margin
   });
 
   // 更新文件上下文
@@ -152,32 +165,95 @@ const config = {
   requestManager.setDebounceDelay(200); // 设置防抖延迟为 200ms
   requestManager.setDebounceEnabled(true); // 启用防抖
 
+
   // 注册 AI 补全功能
   try {
-    registerCompletion(monaco, editor, {
+    completion = registerCompletion(monaco, editor, {
       language: language.value,
       endpoint: API_ENDPOINTS.COMPLETION,
-      
+
       // 🎯 文件名
       filename: filename.value,
-      
+
       trigger: COMPLETION_TRIGGER_CONFIG.TRIGGER_MODE,
       maxContextLines: COMPLETION_TRIGGER_CONFIG.MAX_CONTEXT_LINES,
       enableCaching: COMPLETION_TRIGGER_CONFIG.ENABLE_CACHING,
       allowFollowUpCompletions: COMPLETION_TRIGGER_CONFIG.ALLOW_FOLLOW_UP,
       triggerIf: shouldTriggerCompletion,
       ...createCompletionCallbacks(isAIThinking),
-      
+
       // 🚀 自定义请求处理器 - 支持防抖 + 请求取消
       requestHandler: requestManager.createRequestHandler(),
+    });
+
+    monaco.editor.addEditorAction({
+      id: "monacopilot.triggerCompletion",
+      label: "Complete Code",
+      contextMenuGroupId: "navigation",
+      keybindings: [
+        monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Space,
+      ],
+      run: () => {
+        completion!.trigger();
+      },
     });
   } catch (error) {
     console.error("❌ AI 补全注册失败:", error);
   }
 
+  // 🆕 Phase 1: 初始化编辑历史跟踪器
+  editHistoryTracker = new EditHistoryTracker(editor, {
+    maxHistory: 15,
+    debug: true, // 🔧 重新启用调试日志
+  });
+
+  // 🆕 Phase 3: 初始化 Next Edit Suggestion 管理器
+  nextEditManager = new NextEditSuggestionManager(editor);
+
+  // 🆕 监听编辑历史变化，触发预测（防抖 500ms）
+  let predictionTimeout: ReturnType<typeof setTimeout> | null = null;
+  editHistoryTracker.onHistoryChange((history) => {
+    // 清除之前的定时器
+    if (predictionTimeout) {
+      clearTimeout(predictionTimeout);
+    }
+
+    // 防抖：500ms 后才发送预测请求
+    predictionTimeout = setTimeout(() => {
+      if (history.length >= 1) {
+        nextEditManager?.requestPrediction(history, language.value);
+      }
+    }, 500);
+  });
+
+  // 🆕 绑定 Alt+Enter 键用于 Next Edit（避免与 Tab 冲突）
+  editor.addCommand(
+    monaco.KeyMod.Alt | monaco.KeyCode.Enter,
+    () => {
+      if (nextEditManager?.hasSuggestion()) {
+        nextEditManager.handleNavigateOrAccept();
+      }
+    }
+  );
+
+  // 🆕 绑定 Escape 键清除建议
+  editor.addCommand(
+    monaco.KeyCode.Escape,
+    () => {
+      if (nextEditManager?.hasSuggestion()) {
+        nextEditManager.clearSuggestion();
+      }
+    }
+  );
+
   onBeforeUnmount(() => {
+    if(completion) {
+      completion?.deregister()
+    }
     clearInterval(healthCheckInterval);
     requestManager.reset(); // 清理请求管理器
+    editHistoryTracker?.dispose(); // 🆕 清理编辑历史跟踪器
+    nextEditManager?.dispose(); // 🆕 清理 Next Edit 管理器
     editor?.dispose();
   });
 });

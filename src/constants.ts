@@ -23,6 +23,7 @@ export const EDITOR_CONFIG = {
   MINIMAP_ENABLED: true,
   DEFAULT_LANGUAGE: 'javascript' as const,
   AUTOMATIC_LAYOUT: true,
+  GLYPH_MARGIN: true, // 🆕 启用 glyph margin（用于显示箭头）
   
   // 快速建议配置
   QUICK_SUGGESTIONS: {
@@ -38,9 +39,9 @@ export const EDITOR_CONFIG = {
 
 // ==================== 补全触发配置 ====================
 export const COMPLETION_TRIGGER_CONFIG = {
-  TRIGGER_MODE: 'onTyping' as const,  // 实时触发模式
+  TRIGGER_MODE: 'onIdle' as const,  // 实时触发模式
   MAX_CONTEXT_LINES: 50,              // 最大上下文行数
-  ENABLE_CACHING: true,               // 启用缓存
-  ALLOW_FOLLOW_UP: true,              // 允许连续补全
+  ENABLE_CACHING: false,               // 启用缓存
+  ALLOW_FOLLOW_UP: false,              // 允许连续补全
   MIN_CODE_LENGTH: 5,                 // 最小代码长度（降低阈值）
 } as const;

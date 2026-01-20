@@ -54,11 +54,28 @@ export class FIMPromptBuilder {
 
   /**
    * 清理元信息注释
+   * 
+   * 注意：根据 Qwen 官方文档示例，FIM prompt 可以包含丰富的上下文信息，
+   * 如函数说明、参数说明、返回值说明等。这些信息有助于模型生成更准确的补全。
+   * 
+   * 官方示例：
+   * ```
+   * def reverse_words_with_special_chars(s):
+   *     '''
+   *     反转字符串中的每个单词（保留非字母字符的位置）
+   *     示例: reverse_words_with_special_chars("Hello, world!") -> "olleH, dlrow!"
+   *     参数: s (str): 输入字符串
+   *     返回: str: 处理后的字符串
+   *     '''
+   * ```
+   * 
+   * 因此，我们不应该删除元信息注释，而是保留它们以提供更好的上下文。
+   * 
    * @param {string} content - 原始内容
-   * @returns {string} 清理后的内容
+   * @returns {string} 原样返回，不做清理
    */
   cleanMetaInfo(content) {
-    return content.replace(FIM_CONFIG.META_INFO_PATTERN, '');
+    return content;
   }
 
   /**
