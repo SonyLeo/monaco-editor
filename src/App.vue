@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import MonacoEditorEnhanced from './components/MonacoEditorEnhanced.vue';
+import NesEditor from './components/NesEditor.vue';
 </script>
 
 <template>
-    <MonacoEditorEnhanced />
+    <NesEditor />
 </template>
 
 <style>

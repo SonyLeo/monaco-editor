@@ -1,22 +1,10 @@
 import express from 'express';
 import cors from 'cors';
-import { CompletionCopilot } from 'monacopilot';
 import { getConfig } from './server/config.mjs';
-import { API_ENDPOINTS, PROVIDER_INFO } from './server/constants.mjs';
-import { createSmartPrompt } from './server/utils/promptBuilder.mjs';
-import { callDeepSeekAPI } from './server/clients/deepseekClient.mjs';
-import { callQwenAPI } from './server/clients/qwenClient.mjs';
-import { analyzeEditPattern } from './server/utils/editPatternAnalyzer.mjs';
-import { buildNextEditPrompt } from './server/prompts/index.mjs';
+import { API_ENDPOINTS } from './server/constants.mjs';
 
 // 获取并验证配置
 const config = getConfig();
-
-// 选择 API 调用函数
-const apiClient = config.provider === 'deepseek' ? callDeepSeekAPI : callQwenAPI;
-
-// Provider 信息（用于健康检查和日志）
-const providerInfo = PROVIDER_INFO[config.provider];
 
 const app = express();
 
@@ -24,230 +12,266 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// 创建自定义模型配置
-const copilot = new CompletionCopilot(undefined, {
-  model: async (prompt) => {
-    return await apiClient(prompt, config.apiKey);
-  },
-});
-
-// API 端点
-app.post(API_ENDPOINTS.COMPLETION, async (req, res) => {
+// ⚡ Fast Track: 代码补全
+app.post('/api/completion', async (req, res) => {
   try {
-    console.log('\n🚀 处理代码补全请求...');
+    const { prefix, suffix, max_tokens = 64 } = req.body;
     
-    // 使用自定义 Prompt
-    const completion = await copilot.complete({ 
-      body: req.body,
-      options: {
-        customPrompt: createSmartPrompt
-      }
+    console.log(`⚡ [Fast] Completion request (${prefix?.length || 0} chars prefix)`);
+
+    // 直接调用 DeepSeek API (简化版 - 不使用 Beta FIM，使用标准接口)
+    const isDeepSeek = config.provider === 'deepseek';
+    const apiUrl = isDeepSeek
+      ? 'https://api.deepseek.com/v1/chat/completions'
+      : 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
+
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${config.apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: isDeepSeek ? 'deepseek-coder' : 'qwen2.5-coder-7b-instruct',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a code completion assistant. Complete the code at the cursor position. Return ONLY the completion text, no explanations.'
+          },
+          {
+            role: 'user',
+            content: `Complete the following code:\n\n${prefix}[CURSOR]${suffix}\n\nComplete at [CURSOR]. Return only the code to insert.`
+          }
+        ],
+        max_tokens,
+        temperature: 0,
+        stop: ['\n\n', '\n\n\n']
+      })
     });
-    
-    res.json(completion);
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const completion = data.choices?.[0]?.message?.content || '';
+
+    res.json({ completion: completion.trim() });
   } catch (error) {
-    console.error('❌ 服务器错误:', error);
-    res.status(500).json({ 
-      error: 'Internal server error',
-      message: error.message 
+    console.error('❌ [Fast] Error:', error.message);
+    res.status(500).json({
+      error: 'Completion failed',
+      message: error.message
     });
   }
 });
 
 // 健康检查端点
 app.get(API_ENDPOINTS.HEALTH, (req, res) => {
-  res.json({ 
-    status: 'ok', 
-    message: `Monacopilot ${providerInfo.name} server is running`,
-    provider: providerInfo.name,
-    model: providerInfo.model
+  res.json({
+    status: 'ok',
+    message: `NES Dual Engine Server`,
+    provider: config.provider,
+    mode: 'Fast + Slow Engine'
   });
 });
 
-// 🆕 Next Edit Prediction 端点
-app.post('/next-edit-prediction', async (req, res) => {
+// 🧠 Slow Track: NES 预测
+app.post('/api/next-edit-prediction', async (req, res) => {
   try {
-    console.log('\n🔮 处理 Next Edit 预测请求...');
-    
-    const { editHistory, currentCode, language = 'typescript' } = req.body;
-    
-    // 验证输入
-    if (!editHistory || !Array.isArray(editHistory) || editHistory.length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'Edit history is required and must be a non-empty array',
-      });
-    }
-    
-    if (!currentCode) {
-      return res.status(400).json({
-        success: false,
-        error: 'Current code is required',
-      });
-    }
-    
-    // 1. 分析编辑模式
-    const pattern = analyzeEditPattern(editHistory);
-    console.log('📊 检测到的模式:', pattern.type, `(置信度: ${pattern.confidence})`);
-    
-    // 如果置信度太低，不进行预测
-    if (pattern.confidence < 0.6) {
-      console.log('⚠️ 置信度太低，跳过预测:', pattern.confidence);
-      return res.json({
-        success: false,
-        prediction: null,
-        pattern,
-        error: `Pattern confidence too low: ${pattern.confidence}`,
-      });
-    }
-    
-    // 2. 构建 Prompt
-    const prompt = buildNextEditPrompt(editHistory, currentCode, pattern, language);
-    
-    // 3. 调用 AI 模型
-    console.log('🤖 调用 AI 模型进行预测...');
-    
-    // 为 Next Edit 使用优化的参数（基于 DeepSeek 最佳实践）
-    const result = await callNextEditAPI(prompt, config.apiKey, config.provider);
-    
-    // 4. 解析 JSON 响应
-    const prediction = parseNextEditPrediction(result.text);
-    
-    if (!prediction) {
-      return res.json({
-        success: false,
-        prediction: null,
-        pattern,
-        error: 'Failed to parse AI response',
-      });
-    }
-    
-    console.log('✅ 预测成功:', `Line ${prediction.line}, Action: ${prediction.action}`);
-    
-    res.json({
-      success: true,
-      prediction,
-      pattern,
-    });
-  } catch (error) {
-    console.error('❌ Next Edit 预测错误:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      prediction: null,
-      pattern: { type: 'unknown', confidence: 0, context: '', relatedSymbols: [] },
-    });
-  }
-});
+    const { codeWindow, windowInfo, diffSummary, requestId } = req.body;
 
-/**
- * 调用 AI 模型进行 Next Edit 预测
- * 使用优化的参数（基于 DeepSeek 最佳实践）
- */
-async function callNextEditAPI(prompt, apiKey, provider) {
-  const isDeepSeek = provider === 'deepseek';
-  const apiUrl = isDeepSeek 
-    ? 'https://api.deepseek.com/v1/chat/completions'
-    : 'https://dashscope.aliyuncs.com/compatible-mode/v1/completions';
-  
-  const requestBody = isDeepSeek ? {
-    model: 'deepseek-coder',
-    messages: [
-      { role: 'user', content: prompt.fileContent }
-    ],
-    temperature: 0.6,  // DeepSeek 推荐
-    top_p: 0.95,       // DeepSeek 推荐
-    max_tokens: 512,
-    stream: false,
-  } : {
-    model: 'qwen2.5-coder-32b-instruct',
-    prompt: prompt.fileContent,
-    temperature: 0.6,
-    top_p: 0.95,
-    max_tokens: 512,
-    stream: false,
+    console.log(`🧠 [Slow] NES Prediction (Request ID: ${requestId})`);
+
+    if (!codeWindow || !diffSummary) {
+      return res.status(400).json({ error: '缺少必要参数' });
+    }
+
+    // 🔧 优化后的 System Prompt (Zod + Continue 风格)
+    const systemPrompt = `You are an intelligent code refactoring assistant.
+
+### INSTRUCTIONS
+Your task is to predict the **single next edit** required based on a recent code change.
+You must analyze the "RECENT CHANGE" and find where else in the "CODE WINDOW" needs to be updated.
+
+### STRICT OUTPUT SCHEMA (TypeScript Interface)
+You must output a single valid JSON object satisfying this interface. Do not include markdown or comments.
+
+\`\`\`typescript
+interface Response {
+  // Step 1: Analyze the change (Chain of Thought)
+  analysis: {
+    change_type: "addParameter" | "renameFunction" | "changeType" | "other";
+    summary: string; // e.g. "Function 'createUser' added 'age' parameter"
+    impact: string;  // e.g. "Need to update all calls to 'createUser' with default age"
   };
-  
-  const response = await fetch(apiUrl, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(requestBody),
-  });
-  
-  if (!response.ok) {
-    throw new Error(`API error: ${response.status}`);
-  }
-  
-  const data = await response.json();
-  const text = isDeepSeek 
-    ? data.choices?.[0]?.message?.content
-    : data.choices?.[0]?.text;
-  
-  return { text };
-}
 
-/**
- * 解析 Next Edit 预测结果
- */
-function parseNextEditPrediction(text) {
-  if (!text) return null;
-  
-  try {
-    // 1. 尝试直接解析（如果 AI 返回纯 JSON）
+  // Step 2: The prediction (or null if no edit needed)
+  // Return null if:
+  // - No further edits are needed
+  // - The next usage is outside the code window
+  // - You are unsure
+  prediction: {
+    targetLine: number;           // 1-based line number in CODE WINDOW
+    originalLineContent: string;  // MUST match character-for-character, otherwise REJECTED
+    suggestionText: string;       // The complete new line content
+    explanation: string;          // Short rationale for user
+    confidence: number;           // 0.0 to 1.0
+  } | null;
+}
+\`\`\`
+
+### RULES
+1. **Exact Match**: \`originalLineContent\` must be an exact substring of the provided code window. Even a single space difference will cause validation failure.
+2. **Context Awareness**: Only suggest edits that logically follow from the recent change.
+3. **Safety**: If the line is already correct (e.g. user already updated it), return \`prediction: null\`.
+
+### EXAMPLES
+
+user:
+<recent_change>
+- function log(msg) {
++ function log(msg, level) {
+</recent_change>
+<code_window>
+10: log("Start");
+11: process();
+</code_window>
+
+assistant:
+{
+  "analysis": {
+    "change_type": "addParameter",
+    "summary": "Added 'level' param to log()",
+    "impact": "Update usage at line 10"
+  },
+  "prediction": {
+    "targetLine": 10,
+    "originalLineContent": "    log(\"Start\");",
+    "suggestionText": "    log(\"Start\", \"INFO\");",
+    "explanation": "Add missing 'level' argument",
+    "confidence": 0.95
+  }
+}`;
+
+    // 🔧 Continue 风格的 User Prompt (XML Tags)
+    const userPrompt = `<recent_change>
+${diffSummary}
+</recent_change>
+
+<file_info>
+Total Lines: ${windowInfo.totalLines}
+Window Start: ${windowInfo.startLine}
+</file_info>
+
+<code_window>
+${codeWindow.split('\n').map((line, i) => `${windowInfo.startLine + i}: ${line}`).join('\n')}
+</code_window>
+
+Analyze the <recent_change> and find the next logical edit in <code_window>.`;
+    
+    // 移除旧的 userPrompt 定义
+    /*
+    const userPrompt = `###  CODE WINDOW (Lines ${windowInfo.startLine}-${windowInfo.startLine + codeWindow.split('\n').length})
+${codeWindow}
+
+### RECENT CHANGE
+${diffSummary}
+
+### FILE INFO
+- Total lines: ${windowInfo.totalLines}
+- Window starts at line: ${windowInfo.startLine}
+
+Predict the next edit. If targetLine is within the window, calculate absolute line number.`;
+*/
+
+    const isDeepSeek = config.provider === 'deepseek';
+    const apiUrl = isDeepSeek
+      ? 'https://api.deepseek.com/v1/chat/completions'
+      : 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
+
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${config.apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: isDeepSeek ? 'deepseek-chat' : 'qwen2.5-coder-32b-instruct',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.1,
+        max_tokens: 256
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+
+    // 解析 JSON
+    let parsedResult = null;
     try {
-      const prediction = JSON.parse(text.trim());
-      if (isValidPrediction(prediction)) {
-        return prediction;
-      }
+      // 处理可能的 Markdown 代码块
+      const cleanContent = content.replace(/```json\n|\n```/g, '').trim();
+      parsedResult = JSON.parse(cleanContent);
     } catch (e) {
-      // 继续尝试其他方法
-    }
-    
-    // 2. 提取 JSON（可能包含在其他文本中）
-    const jsonMatch = text.match(/\{[\s\S]*?\}/);
-    if (jsonMatch) {
-      const prediction = JSON.parse(jsonMatch[0]);
-      if (isValidPrediction(prediction)) {
-        return prediction;
+      console.warn('⚠️ JSON parse failed, trying regex extraction');
+      // 尝试提取 JSON 块
+      const match = content.match(/\{[\s\S]*\}/);
+      if (match) {
+        try {
+          parsedResult = JSON.parse(match[0]);
+        } catch (e2) {
+          console.error('❌ JSON extraction failed:', e2);
+        }
       }
     }
-    
-    // 3. 提取 markdown 代码块中的 JSON
-    const codeBlockMatch = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
-    if (codeBlockMatch) {
-      const prediction = JSON.parse(codeBlockMatch[1]);
-      if (isValidPrediction(prediction)) {
-        return prediction;
-      }
-    }
-    
-  } catch (error) {
-    console.error('JSON 解析失败:', error);
-    console.error('原始响应:', text.substring(0, 500));
-  }
-  
-  return null;
-}
 
-/**
- * 验证预测结果是否有效
- */
-function isValidPrediction(prediction) {
-  return prediction &&
-         typeof prediction.line === 'number' &&
-         typeof prediction.action === 'string' &&
-         typeof prediction.newText === 'string';
-}
+    let finalPrediction = null;
+
+    if (parsedResult) {
+      // 1. 记录分析过程 (Chain of Thought)
+      if (parsedResult.analysis) {
+        console.log('🤔 [AI Analysis]', JSON.stringify(parsedResult.analysis, null, 2));
+      }
+
+      // 2. 提取预测结果
+      if (parsedResult.prediction) {
+        finalPrediction = parsedResult.prediction;
+        finalPrediction.requestId = requestId;
+        // 把 confidence 也传下去
+        if (parsedResult.prediction.confidence) {
+            finalPrediction.confidence = parsedResult.prediction.confidence;
+        }
+        console.log(`✅ [Slow] Prediction: Line ${finalPrediction.targetLine} (${finalPrediction.explanation})`);
+      } else {
+        console.log('ℹ️ [Slow] AI decided no edit is needed (prediction is null)');
+      }
+    } else {
+      console.log('ℹ️ [Slow] No valid JSON response');
+    }
+
+    res.json(finalPrediction);
+  } catch (error) {
+    console.error('❌ [Slow] Error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 
 app.listen(config.port, () => {
-  console.log('🎉 Monacopilot AI 服务器启动成功!');
-  console.log(`📡 服务器监听端口: ${config.port}`);
-  console.log(`🔗 健康检查: http://localhost:${config.port}${API_ENDPOINTS.HEALTH}`);
-  console.log(`🤖 补全端点: http://localhost:${config.port}${API_ENDPOINTS.COMPLETION}`);
-  console.log(`� Next Evdit 端点: http://localhost:${config.port}/next-edit-prediction`);
-  console.log(`�  AI Provider: ${providerInfo.name}`);
-  console.log(`🔧 Model: ${providerInfo.model}`);
+  console.log('\n🚀 NES Dual Engine Server Started!');
+  console.log(`📡 Port: ${config.port}`);
+  console.log(`🔗 Health: http://localhost:${config.port}${API_ENDPOINTS.HEALTH}`);
+  console.log(`⚡ Fast Engine: http://localhost:${config.port}/api/completion`);
+  console.log(`🧠 Slow Engine: http://localhost:${config.port}/api/next-edit-prediction`);
+  console.log(`🤖 Provider: ${config.provider}`);
+  console.log('\n✨ Ready for Next Edit Suggestions!\n');
 });
