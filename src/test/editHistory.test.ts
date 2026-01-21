@@ -1,7 +1,7 @@
 /**
  * 编辑历史收集测试
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import * as monaco from 'monaco-editor';
 import { NESController } from '../core/engines/NESController';
 

@@ -35,6 +35,7 @@ export class NESController {
   // 🆕 建议队列管理
   private suggestionQueue: Prediction[] = [];
   private currentSuggestionIndex = 0;
+  private isUserOnSuggestionLine = false; // 🆕 用户是否在建议行
   
   // 🆕 用户反馈历史
   private userFeedbackHistory: Array<{
@@ -81,6 +82,11 @@ export class NESController {
 
       // 🔧 智能判断：是否需要重新预测
       this.handleContentChange(e);
+    });
+
+    // 🆕 监听光标位置变化，更新 HintBar
+    this.editor.onDidChangeCursorPosition(() => {
+      this.updateHintBarBasedOnCursorPosition();
     });
   }
 
@@ -634,6 +640,50 @@ export class NESController {
   }
 
   /**
+   * 🆕 根据光标位置更新 HintBar
+   */
+  private updateHintBarBasedOnCursorPosition(): void {
+    if (this.state !== "SUGGESTING" || this.suggestionQueue.length === 0) {
+      return;
+    }
+
+    const prediction = this.suggestionQueue[this.currentSuggestionIndex];
+    if (!prediction) return;
+
+    const position = this.editor.getPosition();
+    if (!position) return;
+
+    const wasOnLine = this.isUserOnSuggestionLine;
+    this.isUserOnSuggestionLine = position.lineNumber === prediction.targetLine;
+
+    // 如果状态改变，更新 HintBar
+    if (wasOnLine !== this.isUserOnSuggestionLine) {
+      this.updateHintBar(prediction);
+    }
+  }
+
+  /**
+   * 🆕 更新 HintBar 显示
+   */
+  private updateHintBar(prediction: Prediction): void {
+    const position = this.editor.getPosition();
+    if (!position) return;
+
+    const currentLine = position.lineNumber;
+    const currentColumn = position.column;
+    const targetLine = prediction.targetLine;
+
+    if (this.isUserOnSuggestionLine) {
+      // 场景 2：用户在建议行 → 显示 "Tab to Accept" 在当前光标位置
+      this.renderer.showHintBar(currentLine, currentColumn, 'accept', 'current');
+    } else {
+      // 场景 1：用户不在建议行 → 显示 "Tab ↓/↑" 在当前光标位置
+      const direction = currentLine < targetLine ? 'down' : 'up';
+      this.renderer.showHintBar(currentLine, currentColumn, 'navigate', direction);
+    }
+  }
+
+  /**
    * 显示当前建议
    */
   private showCurrentSuggestion(): void {
@@ -663,10 +713,7 @@ export class NESController {
     });
 
     if (accepted) {
-      // 🔧 跳转到建议位置（智能光标定位）
-      this.jumpToSuggestionWithSmartCursor(prediction);
-      
-      // 渲染 Glyph Icon
+      // 🔧 不自动跳转，只显示 Glyph Icon
       this.renderer.renderGlyphIcon(
         prediction.targetLine,
         prediction.suggestionText,
@@ -674,8 +721,12 @@ export class NESController {
         prediction.originalLineContent
       );
       
-      // 🔧 自动展开预览
-      this.renderer.showPreview();
+      // 🆕 检查用户是否已经在建议行
+      const currentLine = this.editor.getPosition()?.lineNumber || 0;
+      this.isUserOnSuggestionLine = currentLine === prediction.targetLine;
+      
+      // 🆕 显示 HintBar（根据位置显示不同提示）
+      this.updateHintBar(prediction);
       
       // Toast 通知（显示进度）
       const progress = `${this.currentSuggestionIndex + 1}/${this.suggestionQueue.length}`;
@@ -786,7 +837,26 @@ export class NESController {
     
     this.suggestionQueue = [];
     this.currentSuggestionIndex = 0;
+    this.isUserOnSuggestionLine = false; // 🆕 重置状态
     this.state = "IDLE";
+  }
+
+  /**
+   * 显示右键菜单
+   */
+  public showContextMenu(x: number, y: number, callbacks: {
+    onNavigate?: () => void;
+    onAccept?: () => void;
+    onDismiss?: () => void;
+  }): void {
+    this.renderer.showContextMenu(x, y, callbacks);
+  }
+
+  /**
+   * 跳转到建议位置（不应用）
+   */
+  public jumpToSuggestion(): void {
+    this.renderer.jumpToSuggestion();
   }
 
   /**
@@ -804,18 +874,32 @@ export class NESController {
   }
 
   /**
-   * 应用建议（跳转并展开预览）
+   * 应用建议（Tab 键处理）
    */
   public applySuggestion(): void {
-    // 🔧 如果已经有预览，说明是第二次按 Tab，应该接受建议
-    if (this.renderer.hasViewZone()) {
-      this.acceptSuggestion();
+    if (!this.hasActiveSuggestion()) {
+      console.log('[NESController] No active suggestion');
       return;
     }
-    
-    // 🔧 第一次按 Tab，只展开预览（不跳转，因为 showCurrentSuggestion 已经跳转了）
-    console.log('[NESController] 📖 Expanding preview');
-    this.renderer.showPreview();
+
+    const prediction = this.suggestionQueue[this.currentSuggestionIndex];
+    if (!prediction) return;
+
+    // 🆕 场景 1：用户不在建议行 → 跳转到建议行 + 展开预览
+    if (!this.isUserOnSuggestionLine) {
+      console.log('[NESController] 🧭 Navigating to suggestion line');
+      this.jumpToSuggestionWithSmartCursor(prediction);
+      this.isUserOnSuggestionLine = true;
+      this.updateHintBar(prediction);
+      
+      // 🔧 立即展开预览
+      this.renderer.showPreview();
+      return;
+    }
+
+    // 🆕 场景 2：用户在建议行 → 接受建议
+    console.log('[NESController] ✅ Accepting suggestion (applying code)');
+    this.acceptSuggestion();
   }
 
   /**

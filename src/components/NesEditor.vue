@@ -149,12 +149,33 @@ const user3 = createUser("Charlie");
             if (currentSuggestion?.type === 'NES' && currentSuggestion.targetLine === lineNumber) {
                 console.log(`[NesEditor] Glyph Icon clicked at line ${lineNumber}`);
                 
-                // 如果已经有预览，则应用建议
-                if (nesController?.hasActivePreview()) {
-                    nesController.acceptSuggestion();
+                // 右键点击：显示菜单
+                if (e.event.rightButton) {
+                    e.event.preventDefault();
+                    const x = e.event.posx;
+                    const y = e.event.posy;
+                    
+                    nesController?.showContextMenu(x, y, {
+                        onNavigate: () => {
+                            console.log('[NesEditor] Navigate to suggestion');
+                            nesController?.jumpToSuggestion();
+                        },
+                        onAccept: () => {
+                            console.log('[NesEditor] Accept suggestion');
+                            nesController?.acceptSuggestion();
+                        },
+                        onDismiss: () => {
+                            console.log('[NesEditor] Dismiss suggestion');
+                            nesController?.skipSuggestion();
+                        }
+                    });
                 } else {
-                    // 否则展开预览
-                    nesController?.applySuggestion();
+                    // 左键点击：展开预览或接受建议
+                    if (nesController?.hasActivePreview()) {
+                        nesController.acceptSuggestion();
+                    } else {
+                        nesController?.applySuggestion();
+                    }
                 }
             }
         }
@@ -238,38 +259,7 @@ onBeforeUnmount(() => {
     overflow: hidden;
 }
 
-/* NES 内嵌 DiffEditor 容器样式 */
-:deep(.nes-native-diff-container) {
-    /* 移除边框和背景，让 DiffEditor 自行渲染 */
-    border-left: 3px solid #4a9eff; /* 保持左侧蓝色指示条 */
-    margin-left: 50px; /* 对齐行号 */
-    background: transparent;
-    /* 必要的，确保 DiffEditor 能撑开 */
-    display: block;
-}
+/* NES 内嵌 DiffEditor 容器样式 - 由 NESRenderer 统一管理 */
 
-/* 隐藏原生 DiffEditor 的装饰元素，让它看起来更干净 */
-:deep(.nes-native-diff-container .monaco-diff-editor .diff-review-line-number) {
-    display: none !important;
-}
-
-:deep(.nes-native-diff-container .monaco-editor .margin) {
-    display: none !important; /* 隐藏内部行号区 */
-}
-
-/* NES 箭头图标样式 - 还原 Copilot Tab 箭头样式 */
-:deep(.nes-arrow-icon) {
-    /* 使用类似 Copilot 的 ->| 图标 */
-    background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="%234a9eff"><path fill-rule="evenodd" d="M10 12.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5h8a.5.5 0 0 1 .5.5v2a.5.5 0 0 0 1 0v-2A1.5 1.5 0 0 0 9.5 2h-8A1.5 1.5 0 0 0 0 3.5v9A1.5 1.5 0 0 0 1.5 14h8a1.5 1.5 0 0 0 1.5-1.5v-2a.5.5 0 0 0-1 0v2z"/><path fill-rule="evenodd" d="M15.854 8.354a.5.5 0 0 0 0-.708l-3-3a.5.5 0 0 0-.708.708L14.293 7.5H5.5a.5.5 0 0 0 0 1h8.793l-2.147 2.146a.5.5 0 0 0 .708.708l3-3z"/></svg>')
-        no-repeat center center;
-    background-size: 14px 14px;
-    cursor: pointer;
-    opacity: 0.9;
-    transition: all 0.2s ease;
-}
-
-:deep(.nes-arrow-icon:hover) {
-    opacity: 1;
-    filter: drop-shadow(0 0 2px #4a9eff);
-}
+/* 增强的箭头图标样式 - 由 NESRenderer 统一管理 */
 </style>

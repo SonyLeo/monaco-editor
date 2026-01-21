@@ -65,7 +65,10 @@ export class TabKeyHandler {
 
   /**
    * 检查是否有 Inline Completion
+   * @deprecated 暂未使用，保留以备将来使用
    */
+  /*
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   private hasInlineCompletion(): boolean {
     try {
       // 方法 1：检查 inlineSuggest contribution
@@ -102,4 +105,5 @@ export class TabKeyHandler {
       return false;
     }
   }
+  */
 }
