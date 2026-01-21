@@ -1,12 +1,18 @@
 /**
  * Fast Engine: 简化版代码补全提供器
- * 单文件场景：直接使用 Prefix/Suffix，无需 Jaccard 上下文
+ * 集成 Arbiter 和后缀去重过滤
  */
 
 import * as monaco from 'monaco-editor';
+import { SuggestionArbiter } from '../arbiter/SuggestionArbiter';
 
 export class FastCompletionProvider {
   private disposable: monaco.IDisposable | null = null;
+  private arbiter: SuggestionArbiter;
+
+  constructor() {
+    this.arbiter = SuggestionArbiter.getInstance();
+  }
 
   /**
    * 注册 Inline Completion Provider
@@ -15,6 +21,12 @@ export class FastCompletionProvider {
     this.disposable = monaco.languages.registerInlineCompletionsProvider('typescript', {
       provideInlineCompletions: async (model, position, _, token) => {
         try {
+          // 检查冷却锁
+          if (this.arbiter.isFimLocked()) {
+            console.log('[FastCompletion] FIM locked, skipping');
+            return { items: [] };
+          }
+
           const fullText = model.getValue();
           const offset = model.getOffsetAt(position);
 
@@ -22,8 +34,7 @@ export class FastCompletionProvider {
           const prefix = fullText.substring(0, offset);
           const suffix = fullText.substring(offset);
 
-          // 🔧 创建 AbortController 适配器
-          // Monaco 的 CancellationToken 需要转换为 fetch 的 AbortSignal
+          // 创建 AbortController 适配器
           const abortController = new AbortController();
           
           // 监听 Monaco 的取消事件
@@ -40,7 +51,7 @@ export class FastCompletionProvider {
               suffix,
               max_tokens: 64
             }),
-            signal: abortController.signal // 使用标准的 AbortSignal
+            signal: abortController.signal
           });
 
           if (!response.ok) {
@@ -51,6 +62,23 @@ export class FastCompletionProvider {
           const { completion } = await response.json();
 
           if (!completion || completion.trim() === '') {
+            return { items: [] };
+          }
+
+          // 后缀去重检查
+          if (this.checkSuffixDuplication(completion, suffix)) {
+            console.log('[FastCompletion] Suffix duplication detected, skipping');
+            return { items: [] };
+          }
+
+          // 通过 Arbiter 提交建议
+          const accepted = this.arbiter.submitFimSuggestion({
+            text: completion,
+            position: { lineNumber: position.lineNumber, column: position.column }
+          });
+
+          if (!accepted) {
+            console.log('[FastCompletion] Rejected by Arbiter');
             return { items: [] };
           }
 
@@ -67,7 +95,7 @@ export class FastCompletionProvider {
           };
 
         } catch (error: any) {
-          // AbortError 是正常的取消操作，不需要报错
+          // AbortError 是正常的取消操作
           if (error.name === 'AbortError') {
             return { items: [] };
           }
@@ -76,13 +104,36 @@ export class FastCompletionProvider {
         }
       },
       
-      // Required by Monaco interface
       disposeInlineCompletions: () => {
         // No resources to dispose per completion
       }
     });
 
     console.log('✅ [FastCompletion] Provider registered');
+  }
+
+  /**
+   * 检查后缀重复
+   * 如果光标后的文本以补全内容开头，则认为是重复
+   */
+  private checkSuffixDuplication(completion: string, suffix: string): boolean {
+    if (!suffix || !completion) {
+      return false;
+    }
+
+    // 标准化：移除空白字符
+    const normalizedCompletion = this.normalize(completion);
+    const normalizedSuffix = this.normalize(suffix);
+
+    // 检查后缀是否以补全内容开头
+    return normalizedSuffix.startsWith(normalizedCompletion);
+  }
+
+  /**
+   * 标准化文本：移除空白字符
+   */
+  private normalize(text: string): string {
+    return text.replace(/\s+/g, '');
   }
 
   /**

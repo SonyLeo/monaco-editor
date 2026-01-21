@@ -23,6 +23,37 @@ export class NESRenderer {
   }
 
   /**
+   * 只渲染 Glyph Icon（不渲染 ViewZone）
+   */
+  public renderGlyphIcon(line: number): void {
+    console.log(`[NESRenderer] 🎯 Rendering Glyph Icon at line ${line}`);
+
+    this.decorations.set([{
+      range: new monaco.Range(line, 1, line, 1),
+      options: {
+        glyphMarginClassName: 'nes-arrow-icon',
+        glyphMarginHoverMessage: {
+          value: `💡 **NES Suggestion**\n\n*Click to preview or press Tab to accept*`
+        },
+        overviewRuler: {
+          color: '#4a9eff',
+          position: monaco.editor.OverviewRulerLane.Right
+        }
+      }
+    }]);
+
+    console.log(`[NESRenderer] ✅ Glyph Icon rendered`);
+  }
+
+  /**
+   * 隐藏 ViewZone（保留 Glyph Icon）
+   */
+  public hideViewZone(): void {
+    this.clearViewZone();
+    console.log('[NESRenderer] ViewZone hidden (Glyph Icon preserved)');
+  }
+
+  /**
    * 显示行号旁的紫色箭头指示器
    */
   public showIndicator(line: number, suggestion: string, explanation: string): void {

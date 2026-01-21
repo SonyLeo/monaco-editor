@@ -17,13 +17,14 @@ export interface DiffRange {
 }
 
 export interface DiffInfo {
-  range: DiffRange;
-  summary: string;
-  // 🆕 增强的 Diff 分析
-  changeType?: 'addParameter' | 'renameFunction' | 'changeType' | 'unknown';
-  functionName?: string;
-  oldSignature?: string;
-  newSignature?: string;
+  type: "INSERT" | "DELETE" | "REPLACE" | "WHITESPACE_ONLY" | "NONE";
+  lines: number[];
+  changes: Array<{ type: 1 | -1 | 0; text: string }>;
+  summary?: string;
+  range?: {
+    start: number;
+    end: number;
+  };
 }
 
 export interface WindowInfo {
@@ -43,4 +44,4 @@ export interface NESPayload {
   newSignature?: string;
 }
 
-export type NESState = 'IDLE' | 'DEBOUNCING' | 'PREDICTING' | 'SUGGESTING';
+export type NESState = "IDLE" | "DEBOUNCING" | "PREDICTING" | "SUGGESTING";

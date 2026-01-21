@@ -8,23 +8,41 @@
     "build": "vue-tsc -b && vite build",
     "preview": "vite preview",
     "server": "node server.mjs",
-    "start": "concurrently \"node server.mjs\" \"vite\""
+    "start": "concurrently \"node server.mjs\" \"vite\"",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest watch",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:debug": "playwright test --debug",
+    "test:e2e:full": "concurrently -k -s first \"node server.mjs\" \"pnpm test:e2e\"",
+    "test:all": "pnpm test:run && pnpm test:e2e"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
+    "fast-diff": "^1.3.0",
     "monaco-editor": "^0.55.0",
     "monacopilot": "^1.2.12",
     "vue": "^3.5.24"
   },
   "devDependencies": {
+    "@playwright/test": "^1.49.1",
+    "@types/fast-diff": "^1.2.2",
     "@types/node": "^24.10.1",
     "@vitejs/plugin-vue": "^6.0.1",
+    "@vitest/coverage-v8": "^4.0.17",
+    "@vitest/ui": "^4.0.17",
     "@vue/tsconfig": "^0.8.1",
     "concurrently": "^9.2.1",
+    "fast-check": "^4.5.3",
+    "jsdom": "^27.4.0",
     "typescript": "~5.9.3",
     "vite": "^7.2.4",
+    "vitest": "^4.0.17",
     "vue-tsc": "^3.1.4"
   }
 }
