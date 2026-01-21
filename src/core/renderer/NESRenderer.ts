@@ -1,38 +1,52 @@
 /**
- * NES Renderer: UI 渲染层
- * 负责绘制箭头装饰器和 Diff 预览面板
+ * NES Renderer: UI 渲染层（重构版）
+ * 负责协调各子管理器，绘制箭头装饰器和 Diff 预览面板
  */
 
 import * as monaco from 'monaco-editor';
 import type { Prediction } from '../../types/nes';
 import { HintBarWidget } from './HintBarWidget';
 import { GlyphContextMenu } from './GlyphContextMenu';
-import { SvgLoader } from '../utils/svgLoader';
+import { DiffEditorManager } from './DiffEditorManager';
+import { DecorationManager } from './DecorationManager';
+import { ViewZoneManager } from './ViewZoneManager';
+import { injectNESStyles } from './styles/nes-styles';
 
 export class NESRenderer {
-  private decorations: monaco.editor.IEditorDecorationsCollection;
-  private currentSuggestion: { targetLine: number; suggestionText: string; explanation: string; originalLineContent?: string } | null = null;
-  private viewZoneIds: string[] = [];
+  private currentSuggestion: { 
+    targetLine: number; 
+    suggestionText: string; 
+    explanation: string; 
+    originalLineContent?: string 
+  } | null = null;
+  
   private hintBarWidget: HintBarWidget | null = null;
   private contextMenu: GlyphContextMenu;
   
-  // 🆕 原生 DiffEditor 相关属性
-  private diffEditor: monaco.editor.IStandaloneDiffEditor | null = null;
-  private diffModels: { 
-    original: monaco.editor.ITextModel | null; 
-    modified: monaco.editor.ITextModel | null; 
-  } = { original: null, modified: null };
+  // 子管理器
+  private diffManager: DiffEditorManager;
+  private decorationManager: DecorationManager;
+  private viewZoneManager: ViewZoneManager;
 
   constructor(private editor: monaco.editor.IStandaloneCodeEditor) {
-    this.decorations = editor.createDecorationsCollection();
+    // 初始化子管理器
+    this.diffManager = new DiffEditorManager(editor);
+    this.decorationManager = new DecorationManager(editor);
+    this.viewZoneManager = new ViewZoneManager(editor, this.diffManager);
+    
     this.contextMenu = new GlyphContextMenu(editor);
-    this.injectEnhancedStyles();
+    injectNESStyles();
   }
 
   /**
    * 只渲染 Glyph Icon（不渲染 ViewZone）+ HintBar
    */
-  public renderGlyphIcon(line: number, suggestion: string, explanation: string, originalLineContent?: string): void {
+  public renderGlyphIcon(
+    line: number, 
+    suggestion: string, 
+    explanation: string, 
+    originalLineContent?: string
+  ): void {
     // 保存建议信息，以便后续展开预览
     this.currentSuggestion = {
       targetLine: line,
@@ -41,29 +55,15 @@ export class NESRenderer {
       originalLineContent
     };
 
-    // 增强的 Glyph 装饰器
-    this.decorations.set([{
-      range: new monaco.Range(line, 1, line, 1),
-      options: {
-        glyphMarginClassName: 'nes-arrow-icon-enhanced',
-        glyphMarginHoverMessage: {
-          value: `💡 **NES Suggestion**\n\n${explanation}\n\n*Click to preview • Tab to accept • Alt+N to skip*`
-        },
-        overviewRuler: {
-          color: '#667eea',
-          position: monaco.editor.OverviewRulerLane.Right
-        }
-      }
-    }]);
-
-    // 注意：不在这里显示 HintBar，由 NESController 控制
+    // 渲染 Glyph 图标
+    this.decorationManager.renderGlyphIcon(line, explanation);
   }
 
   /**
    * 隐藏 ViewZone（保留 Glyph Icon）
    */
   public hideViewZone(): void {
-    this.clearViewZone();
+    this.viewZoneManager.hide();
   }
 
   /**
@@ -76,26 +76,14 @@ export class NESRenderer {
       explanation
     };
 
-    this.decorations.set([{
-      range: new monaco.Range(line, 1, line, 1),
-      options: {
-        glyphMarginClassName: 'nes-arrow-icon',
-        glyphMarginHoverMessage: {
-          value: `💡 **NES Suggestion**\n\n${explanation}\n\n*Press Alt+Enter to navigate*`
-        },
-        overviewRuler: {
-          color: '#4a9eff',
-          position: monaco.editor.OverviewRulerLane.Right
-        }
-      }
-    }]);
+    this.decorationManager.showIndicator(line, explanation);
   }
 
   /**
    * 显示预览（使用原生 DiffEditor 嵌入 ViewZone）
    */
   public showPreview(): void {
-    if (!this.currentSuggestion || this.viewZoneIds.length > 0) {
+    if (!this.currentSuggestion || this.viewZoneManager.hasViewZone()) {
       return;
     }
 
@@ -109,94 +97,8 @@ export class NESRenderer {
     const originalText = originalLineContent || model?.getLineContent(targetLine) || '';
     const modifiedText = suggestionText;
 
-    // 计算所需高度
-    const originalLineCount = originalText.split('\n').length;
-    const modifiedLineCount = modifiedText.split('\n').length;
-    const diffLineCount = originalLineCount + modifiedLineCount;
-    const lineHeight = this.editor.getOption(monaco.editor.EditorOption.lineHeight);
-    const heightInPx = diffLineCount * lineHeight + 10;
-
-    this.editor.changeViewZones((changeAccessor) => {
-      const domNode = document.createElement('div');
-      domNode.className = 'nes-native-diff-container';
-      domNode.style.height = `${heightInPx}px`;
-      domNode.style.overflow = 'hidden';
-      
-      const viewZone: monaco.editor.IViewZone = {
-        afterLineNumber: targetLine,
-        heightInPx: heightInPx,
-        domNode: domNode,
-        onDomNodeTop: (_) => {
-          if (this.diffEditor) return;
-          this.initDiffEditor(domNode, originalText, modifiedText, languageId);
-        }
-      };
-
-      const id = changeAccessor.addZone(viewZone);
-      this.viewZoneIds.push(id);
-    });
-  }
-
-  /**
-   * 初始化嵌入式 DiffEditor
-   */
-  private initDiffEditor(
-    container: HTMLElement, 
-    original: string, 
-    modified: string, 
-    languageId: string
-  ): void {
-    // 1. 创建临时的 Model
-    this.diffModels.original = monaco.editor.createModel(original, languageId);
-    this.diffModels.modified = monaco.editor.createModel(modified, languageId);
-
-    // 2. 创建 DiffEditor
-    this.diffEditor = monaco.editor.createDiffEditor(container, {
-      enableSplitViewResizing: false,
-      renderSideBySide: false,
-      readOnly: true,
-      originalEditable: false, 
-      lineNumbers: 'off',
-      minimap: { enabled: false },
-      scrollbar: {
-        vertical: 'hidden',
-        horizontal: 'hidden',
-        handleMouseWheel: false,
-        alwaysConsumeMouseWheel: false
-      },
-      overviewRulerLanes: 0,
-      overviewRulerBorder: false,
-      hideCursorInOverviewRuler: true,
-      scrollBeyondLastLine: false,
-      contextmenu: false,
-      folding: false,
-      renderOverviewRuler: false,
-      fixedOverflowWidgets: true, // 防止提示框被遮挡
-      // 关键：继承外部编辑器的字体设置
-      fontSize: this.editor.getOption(monaco.editor.EditorOption.fontSize),
-      lineHeight: this.editor.getOption(monaco.editor.EditorOption.lineHeight),
-      fontFamily: this.editor.getOption(monaco.editor.EditorOption.fontFamily)
-    });
-
-    // 3. 设置 Model
-    this.diffEditor.setModel({
-      original: this.diffModels.original,
-      modified: this.diffModels.modified
-    });
-
-    // 4. 强制多次 Layout 以确保渲染正确
-    // 这是一个常见的 hack，因为 DiffEditor 需要一点时间来挂载和计算
-    const layout = () => {
-      if (this.diffEditor) {
-        this.diffEditor.layout({
-           width: container.clientWidth,
-           height: container.clientHeight 
-        });
-      }
-    };
-
-    setTimeout(layout, 0);
-    setTimeout(layout, 50); // 再次检查，防止首次计算为 0
+    // 显示 ViewZone 并初始化 DiffEditor
+    this.viewZoneManager.showPreview(targetLine, originalText, modifiedText, languageId);
   }
 
   /**
@@ -205,8 +107,13 @@ export class NESRenderer {
   public jumpToSuggestion(): void {
     if (!this.currentSuggestion) return;
 
-    const { targetLine } = this.currentSuggestion;
-    this.editor.setPosition({ lineNumber: targetLine, column: 1 });
+    const model = this.editor.getModel();
+    if (!model) return;
+
+    const targetLine = this.currentSuggestion.targetLine;
+    const endColumn = model.getLineMaxColumn(targetLine);
+
+    this.editor.setPosition({ lineNumber: targetLine, column: endColumn });
     this.editor.revealLineInCenter(targetLine);
   }
 
@@ -216,94 +123,83 @@ export class NESRenderer {
   public applySuggestion(): void {
     if (!this.currentSuggestion) return;
 
-    const { targetLine, suggestionText, originalLineContent } = this.currentSuggestion;
     const model = this.editor.getModel();
     if (!model) return;
 
-    const lineContent = model.getLineContent(targetLine);
-    const range = new monaco.Range(
-      targetLine,
-      1,
-      targetLine,
-      lineContent.length + 1
-    );
+    const { targetLine, suggestionText, originalLineContent } = this.currentSuggestion;
+    const originalText = originalLineContent || model.getLineContent(targetLine);
 
-    this.editor.executeEdits('nes-apply', [{
-      range,
-      text: suggestionText
-    }]);
+    // 应用编辑
+    const edit: monaco.editor.IIdentifiedSingleEditOperation = {
+      range: new monaco.Range(targetLine, 1, targetLine, model.getLineMaxColumn(targetLine)),
+      text: suggestionText,
+      forceMoveMarkers: true
+    };
 
-    // 🆕 智能定位光标：移动到新增内容的末尾
-    const newColumn = this.calculateCursorPositionAfterEdit(
-      originalLineContent || lineContent,
-      suggestionText
-    );
-    
+    this.editor.executeEdits('nes-apply-suggestion', [edit]);
+
+    // 计算光标位置
+    const newCursorColumn = this.calculateCursorPositionAfterEdit(originalText, suggestionText);
     this.editor.setPosition({ 
       lineNumber: targetLine, 
-      column: newColumn 
+      column: newCursorColumn 
     });
+    this.editor.revealLineInCenter(targetLine);
 
+    // 清理 UI
     this.clear();
   }
 
   /**
-   * 🆕 计算编辑后的光标位置
-   * 策略：找到原始内容和新内容的最后一个公共部分，光标放在变化内容之后
+   * 计算编辑后的光标位置
    */
   private calculateCursorPositionAfterEdit(original: string, modified: string): number {
-    // 去除首尾空格进行比较
-    const origTrimmed = original.trim();
-    const modTrimmed = modified.trim();
-
-    // 如果完全不同，放在末尾
-    if (origTrimmed.length === 0 || modTrimmed.length === 0) {
-      return modified.length + 1;
+    const len = Math.min(original.length, modified.length);
+    
+    // 从前往后找到第一个不同的字符
+    let firstDiffIndex = 0;
+    for (let i = 0; i < len; i++) {
+      if (original[i] !== modified[i]) {
+        firstDiffIndex = i;
+        break;
+      }
     }
 
-    // 从后往前找到第一个不同的位置
-    let commonSuffixLength = 0;
-    const minLength = Math.min(origTrimmed.length, modTrimmed.length);
-    
-    for (let i = 1; i <= minLength; i++) {
-      const origChar = origTrimmed[origTrimmed.length - i];
-      const modChar = modTrimmed[modTrimmed.length - i];
+    // 从后往前找到第一个不同的字符
+    let lastDiffIndex = modified.length;
+    let origReverse = 0, modReverse = 0;
+    while (origReverse < original.length && modReverse < modified.length) {
+      const origIdx = original.length - 1 - origReverse;
+      const modIdx = modified.length - 1 - modReverse;
       
-      if (origChar === modChar) {
-        commonSuffixLength++;
+      if (origIdx <= firstDiffIndex || modIdx <= firstDiffIndex) break;
+      
+      if (original[origIdx] === modified[modIdx]) {
+        lastDiffIndex = modIdx;
+        origReverse++;
+        modReverse++;
       } else {
         break;
       }
     }
 
-    // 光标位置 = 新内容长度 - 公共后缀长度 + 1
-    // 这样光标会在新增内容之后，公共后缀之前
-    const cursorPos = modTrimmed.length - commonSuffixLength;
-    
-    // 考虑前导空格
-    const leadingSpaces = modified.length - modified.trimStart().length;
-    
-    return leadingSpaces + cursorPos + 1; // +1 因为 column 是 1-indexed
+    // 光标放在变化内容之后
+    return lastDiffIndex + 1;
   }
 
   /**
-   * 显示 HintBar（公开方法）
+   * 显示 HintBar
    */
-  public showHintBar(line: number, column: number, mode: 'navigate' | 'accept', direction: 'up' | 'down' | 'current' = 'current'): void {
-    this.showHintBarInternal(line, column, mode, direction);
-  }
-
-  /**
-   * 显示 HintBar（内部方法）
-   */
-  private showHintBarInternal(line: number, column: number, mode: 'navigate' | 'accept', direction: 'up' | 'down' | 'current' = 'current'): void {
-    // 移除旧的 HintBar
-    if (this.hintBarWidget) {
-      this.editor.removeContentWidget(this.hintBarWidget);
-      this.hintBarWidget.dispose();
-    }
-
-    // 创建新的 HintBar
+  public showHintBar(
+    line: number, 
+    column: number, 
+    mode: 'navigate' | 'accept', 
+    direction: 'up' | 'down' | 'current' = 'current'
+  ): void {
+    // 先移除旧的 HintBar
+    this.hideHintBar();
+    
+    // 创建新的 HintBar widget
     this.hintBarWidget = new HintBarWidget(this.editor, line, column, mode, direction);
     this.editor.addContentWidget(this.hintBarWidget);
   }
@@ -311,7 +207,7 @@ export class NESRenderer {
   /**
    * 隐藏 HintBar
    */
-  private hideHintBar(): void {
+  public hideHintBar(): void {
     if (this.hintBarWidget) {
       this.editor.removeContentWidget(this.hintBarWidget);
       this.hintBarWidget.dispose();
@@ -320,166 +216,81 @@ export class NESRenderer {
   }
 
   /**
-   * 注入增强样式
-   */
-  private injectEnhancedStyles(): void {
-    const styleId = 'nes-renderer-enhanced-styles';
-    if (document.getElementById(styleId)) return;
-
-    // 获取 Glyph 图标 SVG 并转换为 Data URL
-    const glyphIconSvg = SvgLoader.getGlyphIcon('#667eea');
-    const glyphIconDataUrl = SvgLoader.toDataUrl(glyphIconSvg);
-
-    const style = document.createElement('style');
-    style.id = styleId;
-    style.textContent = `
-      /* 增强的 Glyph 箭头图标 - 使用 SVG */
-      .nes-arrow-icon-enhanced {
-        background: url('${glyphIconDataUrl}') no-repeat center center;
-        background-size: 20px 20px;
-        cursor: pointer;
-        opacity: 0.95;
-        transition: all 0.15s ease;
-      }
-
-      .nes-arrow-icon-enhanced:hover {
-        opacity: 1;
-        filter: drop-shadow(0 0 4px #667eea) brightness(1.15);
-        transform: scale(1.08);
-      }
-
-      /* 增强的 Diff 样式 */
-      .nes-native-diff-container {
-        border-left: 3px solid #667eea;
-        margin-left: 50px;
-        background: transparent;
-        display: block;
-        box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
-      }
-
-      /* Diff 删除行样式 */
-      .nes-native-diff-container .monaco-diff-editor .line-delete {
-        background: rgba(255, 0, 0, 0.1) !important;
-        border: 1px solid rgba(255, 0, 0, 0.3) !important;
-      }
-
-      /* Diff 新增行样式 */
-      .nes-native-diff-container .monaco-diff-editor .line-insert {
-        background: rgba(0, 255, 0, 0.1) !important;
-        border: 1px solid rgba(0, 255, 0, 0.3) !important;
-      }
-
-      /* 删除的字符高亮 */
-      .nes-native-diff-container .monaco-diff-editor .char-delete {
-        background: rgba(255, 0, 0, 0.3) !important;
-      }
-
-      /* 新增的字符高亮 */
-      .nes-native-diff-container .monaco-diff-editor .char-insert {
-        background: rgba(0, 255, 0, 0.3) !important;
-      }
-    `;
-    document.head.appendChild(style);
-  }
-
-  /**
    * 清除所有 UI 标记
    */
   public clear(): void {
-    this.decorations.clear();
-    this.clearViewZone();
+    this.decorationManager.clear();
+    this.viewZoneManager.clear();
     this.hideHintBar();
     this.currentSuggestion = null;
-  }
-
-  /**
-   * 清除 ViewZone
-   */
-  public clearViewZone(): void {
-    if (this.viewZoneIds.length > 0) {
-      this.editor.changeViewZones((changeAccessor) => {
-        for (const id of this.viewZoneIds) {
-          changeAccessor.removeZone(id);
-        }
-      });
-      this.viewZoneIds = [];
-
-      // 清理 DiffEditor
-      if (this.diffEditor) {
-        this.diffEditor.dispose();
-        this.diffEditor = null;
-      }
-      // 清理 Model
-      if (this.diffModels.original) {
-        this.diffModels.original.dispose();
-        this.diffModels.original = null;
-      }
-      if (this.diffModels.modified) {
-        this.diffModels.modified.dispose();
-        this.diffModels.modified = null;
-      }
-    }
   }
 
   /**
    * 检查是否显示 ViewZone
    */
   public hasViewZone(): boolean {
-    return this.viewZoneIds.length > 0;
+    return this.viewZoneManager.hasViewZone();
   }
 
   /**
    * 获取当前建议
    */
   public getCurrentSuggestion(): Prediction | null {
-    return this.currentSuggestion;
-  }
+    if (!this.currentSuggestion) return null;
 
-  /**
-      '<': '&lt;',
-      '>': '&gt;',
-      '"': '&quot;',
-      "'": '&#39;'
+    return {
+      targetLine: this.currentSuggestion.targetLine,
+      originalLineContent: this.currentSuggestion.originalLineContent || '',
+      suggestionText: this.currentSuggestion.suggestionText,
+      explanation: this.currentSuggestion.explanation,
+      confidence: 0.9,
+      priority: 1
     };
-    return text.replace(/[&<>"']/g, (m) => map[m] || m);
   }
 
   /**
    * 显示右键菜单
    */
-  public showContextMenu(x: number, y: number, callbacks: {
-    onNavigate?: () => void;
-    onAccept?: () => void;
-    onDismiss?: () => void;
-  }): void {
-    const actions = [];
+  public showContextMenu(
+    x: number, 
+    y: number, 
+    callbacks: {
+      onNavigate?: () => void;
+      onAccept?: () => void;
+      onDismiss?: () => void;
+    }
+  ): void {
+    const actions: any[] = [];
 
     if (callbacks.onNavigate) {
       actions.push({
-        id: 'navigate' as const,
-        label: 'Navigate to',
-        icon: '🧭',
+        id: 'navigate',
+        label: 'Navigate to Suggestion',
+        icon: '', // 图标在 GlyphContextMenu 内处理
         callback: callbacks.onNavigate
       });
     }
 
     if (callbacks.onAccept) {
       actions.push({
-        id: 'accept' as const,
-        label: 'Accept',
-        icon: '✅',
+        id: 'accept',
+        label: 'Accept Prediction', 
+        icon: '',
         callback: callbacks.onAccept
       });
     }
 
-    if (callbacks.onDismiss) {
-      actions.push({
-        id: 'dismiss' as const,
-        label: 'Dismiss',
-        icon: '❌',
-        callback: callbacks.onDismiss
-      });
-    }
+    actions.push({
+      id: 'dismiss',
+      label: 'Dismiss',
+      icon: '',
+      callback: () => {
+        if (callbacks.onDismiss) {
+          callbacks.onDismiss();
+        }
+        this.contextMenu.hide();
+      }
+    });
 
     this.contextMenu.show(x, y, actions);
   }
@@ -489,7 +300,14 @@ export class NESRenderer {
    */
   public dispose(): void {
     this.clear();
-    this.hideHintBar();
+    this.diffManager.dispose();
+    this.decorationManager.dispose();
+    this.viewZoneManager.dispose();
     this.contextMenu.dispose();
+    
+    if (this.hintBarWidget) {
+      this.hintBarWidget.dispose();
+      this.hintBarWidget = null;
+    }
   }
 }

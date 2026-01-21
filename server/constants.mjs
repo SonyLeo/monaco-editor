@@ -164,3 +164,41 @@ export const CODE_PATTERNS = {
   // 匹配类型定义（TS）
   TYPE: /type\s+(\w+)/,
 };
+
+/**
+ * NES 预测 API 配置
+ */
+export const NES_PREDICTION_CONFIG = {
+  TEMPERATURE: 0.1,
+  MAX_TOKENS: 1024,
+  RESPONSE_FORMAT: { type: 'json_object' },
+  
+  // 模型配置
+  MODELS: {
+    deepseek: 'deepseek-chat',
+    qwen: 'qwen2.5-coder-32b-instruct',
+  },
+};
+
+/**
+ * 代码补全 API 配置
+ */
+export const COMPLETION_CONFIG = {
+  TEMPERATURE: 0,
+  MAX_TOKENS: 64,
+  STOP_SEQUENCES: ['\n\n', '\n\n\n'],
+  
+  // 模型配置
+  MODELS: {
+    deepseek: 'deepseek-coder',
+    qwen: 'qwen2.5-coder-7b-instruct',
+  },
+};
+
+/**
+ * API URL 配置
+ */
+export const API_URLS = {
+  deepseek: 'https://api.deepseek.com/v1/chat/completions',
+  qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+};

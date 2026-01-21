@@ -83,13 +83,13 @@ export class HintBarWidget implements monaco.editor.IContentWidget {
     const style = document.createElement('style');
     style.id = styleId;
     style.textContent = `
-      /* 浮动提示条容器 - 与 Glyph 图标风格一致 */
+      /* 浮动提示条容器 */
       .nes-hint-bar-enhanced {
         display: flex !important;
         align-items: center;
         gap: 6px;
-        padding: 6px 10px;
-        background: rgba(102, 126, 234, 0.25); 
+        padding: 6px 8px;
+        background: #1e1e1e; 
         border: 1px solid rgba(102, 126, 234, 0.4);
         border-radius: 6px;
         box-shadow: 0 3px 12px rgba(102, 126, 234, 0.3);
@@ -107,7 +107,7 @@ export class HintBarWidget implements monaco.editor.IContentWidget {
         align-items: center;
         justify-content: center;
         min-width: 38px;
-        height: 24px;
+        height: 20px;
         padding: 0 10px;
         background: rgba(255, 255, 255, 0.95);
         color: #667eea;
