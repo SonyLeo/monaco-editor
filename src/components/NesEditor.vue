@@ -42,11 +42,31 @@ onMounted(() => {
 
     // 初始化 Monaco Editor
     const editor = monaco.editor.create(editorContainer.value, {
-        value: '',
+        value: `// Welcome to NES Editor (Next Edit Suggestions)
+// Powered by DeepSeek Dual Engine
+
+// Try editing this code:
+function createUser(name: string) {
+  console.log("Creating user:", name);
+  return { name };
+}
+
+// Usage examples - try changing the function signature above
+const user1 = createUser("Alice");
+const user2 = createUser("Bob");
+const user3 = createUser("Charlie");
+
+// Tips:
+// - Edit the function to add a new parameter
+// - Wait 1.5 seconds after editing
+// - NES will predict where else you need to update
+// - Press Alt+Enter to navigate to suggestions
+// - Press Tab to accept suggestions
+`,
         language: 'typescript',
         theme: 'vs-dark',
         fontSize: 14,
-        glyphMargin: true, // 必须开启，用于显示 NES 箭头
+        glyphMargin: true,
         automaticLayout: true,
         minimap: { enabled: false },
         suggestOnTriggerCharacters: true,
@@ -76,14 +96,14 @@ onMounted(() => {
     // 初始化 Tab 键处理器
     tabKeyHandler = new TabKeyHandler(editor);
 
-    // Tab 键：使用 TabKeyHandler 处理完整优先级
+    // Tab 键：使用 addCommand 覆盖默认行为
     editor.addCommand(monaco.KeyCode.Tab, () => {
         const handled = tabKeyHandler?.handleTab();
         if (!handled) {
             // 优先级 5: 默认 Tab（缩进）
             editor.trigger('keyboard', 'tab', {});
         }
-    });
+    }, '');
 
     // Esc 键处理
     editor.addCommand(monaco.KeyCode.Escape, () => {
@@ -100,6 +120,43 @@ onMounted(() => {
     editor.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.Enter, () => {
         if (nesController?.hasActiveSuggestion()) {
             nesController.applySuggestion();
+        }
+    });
+
+    // 🆕 Alt+N 键：跳过当前建议，跳到下一个
+    editor.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.KeyN, () => {
+        if (nesController?.hasActiveSuggestion()) {
+            nesController.skipSuggestion();
+        }
+    });
+
+    // 🆕 Shift+Esc 键：拒绝所有剩余建议
+    editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.Escape, () => {
+        if (nesController?.hasActiveSuggestion()) {
+            nesController.rejectAllSuggestions();
+        }
+    });
+
+    // 🆕 监听 Glyph Margin 点击事件
+    editor.onMouseDown((e) => {
+        // 检查是否点击了 Glyph Margin 区域
+        if (e.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) {
+            const lineNumber = e.target.position?.lineNumber;
+            if (!lineNumber) return;
+
+            // 检查该行是否有 NES 建议
+            const currentSuggestion = arbiter.getCurrentSuggestion();
+            if (currentSuggestion?.type === 'NES' && currentSuggestion.targetLine === lineNumber) {
+                console.log(`[NesEditor] Glyph Icon clicked at line ${lineNumber}`);
+                
+                // 如果已经有预览，则应用建议
+                if (nesController?.hasActivePreview()) {
+                    nesController.acceptSuggestion();
+                } else {
+                    // 否则展开预览
+                    nesController?.applySuggestion();
+                }
+            }
         }
     });
 

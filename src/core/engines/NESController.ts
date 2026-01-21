@@ -11,6 +11,7 @@ import type {
   Prediction,
   DiffInfo,
   NESPayload,
+  EditRecord,
 } from "../../types/nes";
 
 import { DiffEngine } from "../diff/DiffEngine";
@@ -26,6 +27,25 @@ export class NESController {
   private toast: ToastNotification;
   private diffEngine: DiffEngine;
   private arbiter: SuggestionArbiter;
+  private editHistory: EditRecord[] = []; // 🆕 编辑历史
+  private readonly MAX_HISTORY_SIZE = 10; // 保留最近 10 次编辑
+  private pendingEdit: EditRecord | null = null; // 🆕 待合并的编辑
+  private editMergeTimer: number | null = null; // 🆕 编辑合并计时器
+  
+  // 🆕 建议队列管理
+  private suggestionQueue: Prediction[] = [];
+  private currentSuggestionIndex = 0;
+  
+  // 🆕 用户反馈历史
+  private userFeedbackHistory: Array<{
+    prediction: Prediction;
+    action: 'accepted' | 'skipped' | 'rejected';
+    timestamp: number;
+  }> = [];
+  private readonly MAX_FEEDBACK_HISTORY = 20;
+  
+  // 🆕 正在应用建议的标记（用于区分编辑来源）
+  private applyingSuggestionLine: number | null = null;
 
   constructor(private editor: monaco.editor.IStandaloneCodeEditor) {
     this.renderer = new NESRenderer(editor);
@@ -45,24 +65,320 @@ export class NESController {
    * 绑定事件监听器
    */
   private bindListeners(): void {
-    this.editor.onDidChangeModelContent(() => {
+    this.editor.onDidChangeModelContent((e) => {
+      const model = this.editor.getModel();
+      if (!model) return;
+
+      // 🆕 收集编辑并合并连续的小编辑
+      e.changes.forEach(change => {
+        this.recordEdit(change, model);
+      });
+
       // 用户打字时：隐藏 ViewZone，保留 Glyph Icon
       if (this.state === "SUGGESTING") {
-        this.renderer.hideViewZone(); // 只隐藏 ViewZone
-        // 不改变状态，保留 Glyph Icon
+        this.renderer.hideViewZone();
       }
 
-      // 重置防抖计时器
-      if (this.debounceTimer) {
-        clearTimeout(this.debounceTimer);
-      }
-
-      this.state = "DEBOUNCING";
-
-      this.debounceTimer = window.setTimeout(() => {
-        this.predict();
-      }, 1500);
+      // 🔧 智能判断：是否需要重新预测
+      this.handleContentChange(e);
     });
+  }
+
+  /**
+   * 🆕 处理内容变更（智能判断是否重新预测）
+   */
+  private handleContentChange(e: monaco.editor.IModelContentChangedEvent): void {
+    // 🔧 如果正在应用建议，忽略所有编辑事件
+    if (this.applyingSuggestionLine !== null) {
+      console.log('[NESController] 🔒 Ignoring edit during suggestion application');
+      return;
+    }
+
+    // 如果没有队列，正常预测
+    if (this.suggestionQueue.length === 0) {
+      this.schedulePredict();
+      return;
+    }
+
+    // 🔧 智能判断：编辑是否来自当前建议
+    const isFromCurrentSuggestion = this.isEditFromSuggestion(e);
+    
+    if (isFromCurrentSuggestion) {
+      // 来自建议的编辑，保留队列
+      console.log('[NESController] ✅ Edit from suggestion, keeping queue');
+      return;
+    }
+
+    // 🔧 智能判断：编辑是否在队列范围内
+    const isInQueueRange = this.isEditInQueueRange(e);
+    
+    if (isInQueueRange) {
+      // 用户可能在手动修改建议行，清空队列
+      console.log('[NESController] ⚠️ User editing in queue range, clearing queue');
+      this.clearSuggestionQueue('user edited suggestion line');
+    } else {
+      // 用户在其他地方编辑，清空队列
+      console.log('[NESController] 🔄 User editing elsewhere, clearing queue');
+      this.clearSuggestionQueue('user edited elsewhere');
+    }
+
+    // 重新预测
+    this.schedulePredict();
+  }
+
+  /**
+   * 🆕 判断编辑是否来自当前建议
+   */
+  private isEditFromSuggestion(e: monaco.editor.IModelContentChangedEvent): boolean {
+    // 🔧 如果有标记，说明正在应用建议
+    if (this.applyingSuggestionLine !== null) {
+      const isMatchingLine = e.changes.some(
+        change => change.range.startLineNumber === this.applyingSuggestionLine
+      );
+      
+      if (isMatchingLine) {
+        console.log('[NESController] 🎯 Detected edit from suggestion (via marker):', {
+          line: this.applyingSuggestionLine,
+          changes: e.changes.length
+        });
+        return true;
+      }
+    }
+    
+    // 🔧 备用检查：检查上一个接受的建议
+    if (this.currentSuggestionIndex === 0) return false;
+    
+    const lastAcceptedPrediction = this.suggestionQueue[this.currentSuggestionIndex - 1];
+    if (!lastAcceptedPrediction) return false;
+
+    // 检查编辑的行号和内容是否匹配
+    return e.changes.some(change => {
+      const isTargetLine = change.range.startLineNumber === lastAcceptedPrediction.targetLine;
+      
+      // 检查是否包含建议的文本（去除空格比较）
+      const changeText = change.text.replace(/\s+/g, '');
+      const suggestionText = lastAcceptedPrediction.suggestionText.replace(/\s+/g, '');
+      const containsSuggestion = changeText.includes(suggestionText) || suggestionText.includes(changeText);
+      
+      const result = isTargetLine && containsSuggestion;
+      
+      if (result) {
+        console.log('[NESController] 🎯 Detected edit from suggestion (via content match):', {
+          line: change.range.startLineNumber,
+          changeText: change.text.substring(0, 50),
+          suggestionText: lastAcceptedPrediction.suggestionText.substring(0, 50)
+        });
+      }
+      
+      return result;
+    });
+  }
+
+  /**
+   * 🆕 判断编辑是否在队列范围内
+   */
+  private isEditInQueueRange(e: monaco.editor.IModelContentChangedEvent): boolean {
+    const queueLines = this.suggestionQueue.map(p => p.targetLine);
+    return e.changes.some(change => 
+      queueLines.includes(change.range.startLineNumber)
+    );
+  }
+
+  /**
+   * 🆕 调度预测（防抖）
+   */
+  private schedulePredict(): void {
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+    }
+    
+    this.state = "DEBOUNCING";
+    
+    this.debounceTimer = window.setTimeout(() => {
+      this.predict();
+    }, 1500);
+  }
+
+  /**
+   * 记录编辑（带合并逻辑）
+   */
+  private recordEdit(change: monaco.editor.IModelContentChange, model: monaco.editor.ITextModel): void {
+    const editType = this.detectEditType(change);
+    const oldText = this.getOldText(change, this.lastSnapshot);
+    const newText = change.text;
+    const lineContent = model.getLineContent(change.range.startLineNumber);
+
+    // 🆕 分析语义上下文
+    const context = this.analyzeEditContext(change, lineContent, oldText, newText);
+
+    const currentEdit: EditRecord = {
+      timestamp: Date.now(),
+      lineNumber: change.range.startLineNumber,
+      column: change.range.startColumn,
+      type: editType,
+      oldText,
+      newText,
+      rangeLength: change.rangeLength,
+      context
+    };
+
+    // 🆕 合并逻辑：如果是连续的小编辑（如逐字符输入），合并为一个编辑
+    if (this.shouldMergeEdit(currentEdit)) {
+      this.mergePendingEdit(currentEdit);
+    } else {
+      // 提交之前的待合并编辑
+      this.flushPendingEdit();
+      // 开始新的待合并编辑
+      this.pendingEdit = currentEdit;
+      
+      // 设置合并计时器（500ms 内的连续编辑会被合并）
+      if (this.editMergeTimer) {
+        clearTimeout(this.editMergeTimer);
+      }
+      this.editMergeTimer = window.setTimeout(() => {
+        this.flushPendingEdit();
+      }, 500);
+    }
+  }
+
+  /**
+   * 判断是否应该合并编辑
+   */
+  private shouldMergeEdit(currentEdit: EditRecord): boolean {
+    if (!this.pendingEdit) return false;
+
+    const timeDiff = currentEdit.timestamp - this.pendingEdit.timestamp;
+    const isSameLine = currentEdit.lineNumber === this.pendingEdit.lineNumber;
+    const isConsecutive = Math.abs(currentEdit.column - (this.pendingEdit.column + this.pendingEdit.newText.length)) <= 1;
+    const isSameType = currentEdit.type === this.pendingEdit.type;
+    const isSmallEdit = currentEdit.newText.length <= 3 && this.pendingEdit.newText.length <= 10;
+
+    // 合并条件：同一行、连续位置、相同类型、小编辑、时间间隔 < 500ms
+    return isSameLine && isConsecutive && isSameType && isSmallEdit && timeDiff < 500;
+  }
+
+  /**
+   * 合并待处理的编辑
+   */
+  private mergePendingEdit(currentEdit: EditRecord): void {
+    if (!this.pendingEdit) return;
+
+    // 合并文本
+    if (currentEdit.type === 'insert') {
+      this.pendingEdit.newText += currentEdit.newText;
+    } else if (currentEdit.type === 'delete') {
+      this.pendingEdit.oldText += currentEdit.oldText;
+    } else {
+      this.pendingEdit.newText += currentEdit.newText;
+      this.pendingEdit.oldText += currentEdit.oldText;
+    }
+
+    // 更新时间戳和上下文
+    this.pendingEdit.timestamp = currentEdit.timestamp;
+    this.pendingEdit.context = currentEdit.context;
+  }
+
+  /**
+   * 提交待处理的编辑到历史
+   */
+  private flushPendingEdit(): void {
+    if (!this.pendingEdit) return;
+
+    this.editHistory.push(this.pendingEdit);
+    this.pendingEdit = null;
+
+    // 保留最近 N 次编辑
+    if (this.editHistory.length > this.MAX_HISTORY_SIZE) {
+      this.editHistory = this.editHistory.slice(-this.MAX_HISTORY_SIZE);
+    }
+  }
+
+  /**
+   * 分析编辑的语义上下文
+   */
+  private analyzeEditContext(
+    change: monaco.editor.IModelContentChange,
+    lineContent: string,
+    _oldText: string,
+    newText: string
+  ): EditRecord['context'] {
+    const column = change.range.startColumn - 1;
+    
+    // 检测是否在字符串中
+    const beforeCursor = lineContent.substring(0, column);
+    const inString = (beforeCursor.match(/"/g) || []).length % 2 === 1 ||
+                     (beforeCursor.match(/'/g) || []).length % 2 === 1;
+    
+    // 检测是否在注释中
+    const inComment = beforeCursor.includes('//') || beforeCursor.includes('/*');
+
+    // 检测语义类型
+    let semanticType: 'functionName' | 'variableName' | 'parameter' | 'functionCall' | 'other' = 'other';
+    
+    // 函数定义：function xxx( 或 const xxx = (
+    if (/function\s+\w*$/.test(beforeCursor) || /const\s+\w+\s*=\s*\(?$/.test(beforeCursor)) {
+      semanticType = 'functionName';
+    }
+    // 函数调用：xxx(
+    else if (/\w+\s*\($/.test(lineContent.substring(0, column + newText.length))) {
+      semanticType = 'functionCall';
+    }
+    // 变量声明：const/let/var xxx
+    else if (/(const|let|var)\s+\w*$/.test(beforeCursor)) {
+      semanticType = 'variableName';
+    }
+    // 参数：在括号内
+    else if (beforeCursor.includes('(') && !beforeCursor.includes(')')) {
+      semanticType = 'parameter';
+    }
+
+    return {
+      lineContent,
+      tokenType: inString ? 'string' : inComment ? 'comment' : 'identifier',
+      semanticType
+    };
+  }
+
+  /**
+   * 检测编辑类型
+   */
+  private detectEditType(change: monaco.editor.IModelContentChange): 'insert' | 'delete' | 'replace' {
+    const hasOldContent = change.rangeLength > 0;
+    const hasNewContent = change.text.length > 0;
+
+    if (hasOldContent && hasNewContent) return 'replace';
+    if (hasNewContent) return 'insert';
+    return 'delete';
+  }
+
+  /**
+   * 获取被替换的旧文本
+   */
+  private getOldText(change: monaco.editor.IModelContentChange, snapshot: string): string {
+    if (change.rangeLength === 0) return '';
+
+    const lines = snapshot.split('\n');
+    const startLine = change.range.startLineNumber - 1;
+    const endLine = change.range.endLineNumber - 1;
+    const startCol = change.range.startColumn - 1;
+    const endCol = change.range.endColumn - 1;
+
+    if (startLine === endLine) {
+      return lines[startLine]?.substring(startCol, endCol) || '';
+    }
+
+    // 多行变更
+    const result: string[] = [];
+    for (let i = startLine; i <= endLine; i++) {
+      if (i === startLine) {
+        result.push(lines[i]?.substring(startCol) || '');
+      } else if (i === endLine) {
+        result.push(lines[i]?.substring(0, endCol) || '');
+      } else {
+        result.push(lines[i] || '');
+      }
+    }
+    return result.join('\n');
   }
 
   /**
@@ -92,8 +408,6 @@ export class NESController {
     payload.requestId = requestId;
 
     try {
-      console.log(`[NESController] Predicting... (Request ID: ${requestId})`);
-
       const response = await fetch(
         "http://localhost:3000/api/next-edit-prediction",
         {
@@ -108,7 +422,7 @@ export class NESController {
         throw new Error(`API error: ${response.status}`);
       }
 
-      const prediction: Prediction = await response.json();
+      const apiResponse: { predictions: Prediction[]; totalCount: number; hasMore: boolean; requestId: number } = await response.json();
 
       // Request ID 校验
       if (requestId !== this.lastRequestId) {
@@ -116,47 +430,37 @@ export class NESController {
         return;
       }
 
-      // 双重验证
-      if (!prediction || !this.validatePrediction(prediction)) {
-        console.warn("[NESController] Prediction validation failed");
+      // 检查是否有建议
+      if (!apiResponse || !apiResponse.predictions || apiResponse.predictions.length === 0) {
+        console.log("[NESController] No predictions returned");
         this.state = "IDLE";
         return;
       }
 
-      this.state = "SUGGESTING";
+      // 🆕 处理多个建议
+      const predictions = apiResponse.predictions;
+      console.log(`[NESController] Received ${predictions.length} prediction(s)`);
 
-      // 通过 Arbiter 提交 NES 建议
-      const accepted = this.arbiter.submitNesSuggestion({
-        targetLine: prediction.targetLine,
-        suggestion: prediction.suggestionText,
-        originalText: prediction.originalLineContent,
-        changeType: 'REFACTOR'
-      });
-
-      if (accepted) {
-        // 只渲染 Glyph Icon
-        this.renderer.renderGlyphIcon(prediction.targetLine);
-        
-        // Toast 通知
-        this.toast.show(
-          `Found suggestion at line ${prediction.targetLine}`,
-          "success",
-          2000,
-        );
-        
-        console.log('[NESController] ✅ NES suggestion submitted to Arbiter');
-      } else {
-        console.log('[NESController] ❌ NES suggestion rejected by Arbiter');
+      // 验证所有建议
+      const validPredictions = predictions.filter(pred => this.validatePrediction(pred));
+      
+      if (validPredictions.length === 0) {
+        console.warn("[NESController] All predictions failed validation");
         this.state = "IDLE";
+        return;
       }
+
+      // 🆕 保存到队列
+      this.suggestionQueue = validPredictions;
+      this.currentSuggestionIndex = 0;
+
+      // 显示第一个建议
+      this.showCurrentSuggestion();
 
       this.lastSnapshot = currentCode;
     } catch (error: any) {
-      if (error.name === "AbortError") {
-        console.log("[NESController] Request aborted");
-      } else {
+      if (error.name !== "AbortError") {
         console.error("[NESController] Prediction error:", error);
-        // 🆕 错误提示
         this.toast.show("Prediction failed", "error", 2000);
       }
       this.state = "IDLE";
@@ -213,6 +517,14 @@ export class NESController {
 
     const codeWindow = lines.slice(windowStart, windowEnd).join("\n");
 
+    // 🆕 格式化用户反馈（最近 5 条）
+    const recentFeedback = this.userFeedbackHistory.slice(-5).map(fb => ({
+      targetLine: fb.prediction.targetLine,
+      action: fb.action,
+      suggestionText: fb.prediction.suggestionText,
+      timestamp: fb.timestamp
+    }));
+
     return {
       codeWindow,
       windowInfo: {
@@ -220,111 +532,58 @@ export class NESController {
         totalLines: lines.length,
       },
       diffSummary: diffInfo.summary || `Changed line ${changedLine}`,
+      editHistory: this.editHistory.slice(-5), // 🆕 最近 5 次编辑
+      userFeedback: recentFeedback.length > 0 ? recentFeedback : undefined, // 🆕 用户反馈
       requestId: 0, // Will be set later
     };
   }
 
   /**
-   * 双重验证：防止模型幻觉（增强版 - 带详细日志）
+   * 双重验证：防止模型幻觉
    */
   private validatePrediction(pred: Prediction): boolean {
     const model = this.editor.getModel();
-    if (!model) {
-      console.warn("[NESController] ❌ Validation failed: No model");
-      return false;
-    }
+    if (!model) return false;
 
     // 1. 行号合法性
     if (pred.targetLine < 1 || pred.targetLine > model.getLineCount()) {
-      console.warn(
-        `[NESController] ❌ Validation failed: Invalid line number ${pred.targetLine} (total: ${model.getLineCount()})`,
-      );
+      console.warn(`[NESController] Invalid line number ${pred.targetLine}`);
       return false;
     }
-
-    console.log(
-      `[NESController] 🔍 Validating prediction for line ${pred.targetLine}`,
-    );
 
     // 2. 内容匹配（如果后端提供了 originalLineContent）
     if (pred.originalLineContent !== undefined) {
       const actualLine = model.getLineContent(pred.targetLine);
 
-      // 🔧 修复：如果两边都是空行，允许通过
+      // 如果两边都是空行，允许通过
       if (!actualLine && !pred.originalLineContent) {
-        console.log("[NESController] ✅ Both sides empty, validation passed");
         return true;
       }
 
-      // 🔧 临时注释掉空行检查 - 允许所有情况显示
-      /* 原始检查
-      if (!actualLine || !pred.originalLineContent) {
-        console.warn(`[NESController] ❌ Validation failed: One side is empty`);
-        console.warn(`  Actual: "${actualLine || '(empty)'}"`);
-        console.warn(`  Expected: "${pred.originalLineContent || '(empty)'}"`);
-        return false;
-      }
-      */
-
-      // 如果实际行为空但预期不为空，记录警告但仍然继续
-      if (!actualLine && pred.originalLineContent) {
-        console.warn(
-          `[NESController] ⚠️ Empty line detected (line ${pred.targetLine}), but showing suggestion anyway`,
-        );
-        console.warn(`  Expected: "${pred.originalLineContent}"`);
-        // 继续执行，不返回 false
-      }
-
-      // 如果预期为空但实际不为空，也记录警告
-      if (actualLine && !pred.originalLineContent) {
-        console.warn(
-          `[NESController] ⚠️ Backend expected empty line, actual: "${actualLine}"`,
-        );
-        // 继续执行
-      }
-
       const normalize = (s: string) => s.replace(/\s+/g, " ").trim();
-
       const expectedNormalized = normalize(pred.originalLineContent);
       const actualNormalized = normalize(actualLine);
 
-      console.log("[NESController] 📝 Content comparison:");
-      console.log(`  Expected: "${expectedNormalized}"`);
-      console.log(`  Actual:   "${actualNormalized}"`);
-      console.log(`  Match: ${expectedNormalized === actualNormalized}`);
-
       if (expectedNormalized !== actualNormalized) {
-        // 🔧 改进：使用模糊匹配而不是直接拒绝
-        const similarity = this.calculateSimilarity(
-          expectedNormalized,
-          actualNormalized,
-        );
-        console.warn(
-          `[NESController] ⚠️ Content mismatch (similarity: ${similarity.toFixed(2)})`,
-        );
-
+        // 使用模糊匹配
+        const similarity = this.calculateSimilarity(expectedNormalized, actualNormalized);
+        
         // 🔧 临时禁用验证：阈值设为 0（始终显示）
         // TODO: 修复后端 Prompt 后恢复到 0.6
-        if (similarity > 0) {
-          console.log(
-            "[NESController] ✅ Validation disabled - showing all suggestions",
-          );
+        if (similarity > 0.6) {
           return true;
         }
-
-        console.warn(
-          "[NESController] ❌ This should never happen (similarity is always >= 0)",
-        );
+        
+        console.warn(`[NESController] Content mismatch (similarity: ${similarity.toFixed(2)})`);
         return false;
       }
     }
 
-    console.log("[NESController] ✅ Validation passed");
     return true;
   }
 
   /**
-   * 🆕 计算字符串相似度（Levenshtein 距离）
+   * 计算字符串相似度
    */
   private calculateSimilarity(str1: string, str2: string): number {
     const len1 = str1.length;
@@ -375,6 +634,162 @@ export class NESController {
   }
 
   /**
+   * 显示当前建议
+   */
+  private showCurrentSuggestion(): void {
+    if (this.currentSuggestionIndex >= this.suggestionQueue.length) {
+      console.log("[NESController] All suggestions processed");
+      this.clearSuggestionQueue('all processed');
+      return;
+    }
+
+    const prediction = this.suggestionQueue[this.currentSuggestionIndex];
+    if (!prediction) {
+      console.warn("[NESController] Invalid prediction at index", this.currentSuggestionIndex);
+      return;
+    }
+
+    this.state = "SUGGESTING";
+
+    // 🔧 设置标记，防止跳转触发的编辑事件被误判
+    this.applyingSuggestionLine = prediction.targetLine;
+
+    // 通过 Arbiter 提交 NES 建议
+    const accepted = this.arbiter.submitNesSuggestion({
+      targetLine: prediction.targetLine,
+      suggestion: prediction.suggestionText,
+      originalText: prediction.originalLineContent,
+      changeType: 'REFACTOR'
+    });
+
+    if (accepted) {
+      // 🔧 跳转到建议位置（智能光标定位）
+      this.jumpToSuggestionWithSmartCursor(prediction);
+      
+      // 渲染 Glyph Icon
+      this.renderer.renderGlyphIcon(
+        prediction.targetLine,
+        prediction.suggestionText,
+        prediction.explanation,
+        prediction.originalLineContent
+      );
+      
+      // 🔧 自动展开预览
+      this.renderer.showPreview();
+      
+      // Toast 通知（显示进度）
+      const progress = `${this.currentSuggestionIndex + 1}/${this.suggestionQueue.length}`;
+      const remaining = this.suggestionQueue.length - this.currentSuggestionIndex - 1;
+      const message = remaining > 0 
+        ? `Suggestion ${progress} (${remaining} more)`
+        : `Last suggestion ${progress}`;
+      
+      this.toast.show(message, "success", 2000);
+      
+      console.log(`[NESController] 📌 Showing suggestion ${progress} at line ${prediction.targetLine}`);
+    } else {
+      console.log("[NESController] Suggestion rejected by Arbiter");
+      this.state = "IDLE";
+    }
+
+    // 🔧 清除标记
+    setTimeout(() => {
+      this.applyingSuggestionLine = null;
+    }, 100);
+  }
+
+  /**
+   * 🆕 跳转到建议位置并智能定位光标
+   */
+  private jumpToSuggestionWithSmartCursor(prediction: Prediction): void {
+    const model = this.editor.getModel();
+    if (!model) return;
+
+    const targetLine = prediction.targetLine;
+    const lineContent = model.getLineContent(targetLine);
+    
+    // 🔧 智能查找光标位置：找到建议文本中变化的部分
+    let targetColumn = 1;
+    
+    if (prediction.originalLineContent && prediction.suggestionText) {
+      // 找到第一个不同的字符位置
+      const original = prediction.originalLineContent.trim();
+      const suggestion = prediction.suggestionText.trim();
+      
+      let diffIndex = 0;
+      const minLength = Math.min(original.length, suggestion.length);
+      
+      for (let i = 0; i < minLength; i++) {
+        if (original[i] !== suggestion[i]) {
+          diffIndex = i;
+          break;
+        }
+      }
+      
+      // 在行内容中查找这个位置
+      const trimmedLine = lineContent.trim();
+      const leadingSpaces = lineContent.length - trimmedLine.length;
+      targetColumn = leadingSpaces + diffIndex + 1;
+      
+      console.log('[NESController] 🎯 Smart cursor positioning:', {
+        line: targetLine,
+        column: targetColumn,
+        diffIndex,
+        original: original.substring(0, 30),
+        suggestion: suggestion.substring(0, 30)
+      });
+    } else {
+      // 如果没有原始内容，定位到第一个非空白字符
+      const match = lineContent.match(/\S/);
+      targetColumn = match ? match.index! + 1 : 1;
+    }
+
+    // 设置光标位置
+    this.editor.setPosition({ 
+      lineNumber: targetLine, 
+      column: targetColumn 
+    });
+    
+    // 滚动到中心
+    this.editor.revealLineInCenter(targetLine);
+  }
+
+  /**
+   * 🆕 记录用户反馈
+   */
+  private recordUserFeedback(
+    prediction: Prediction,
+    action: 'accepted' | 'skipped' | 'rejected'
+  ): void {
+    this.userFeedbackHistory.push({
+      prediction,
+      action,
+      timestamp: Date.now()
+    });
+
+    // 保留最近 N 条反馈
+    if (this.userFeedbackHistory.length > this.MAX_FEEDBACK_HISTORY) {
+      this.userFeedbackHistory = this.userFeedbackHistory.slice(-this.MAX_FEEDBACK_HISTORY);
+    }
+
+    console.log(`[NESController] User ${action} suggestion at line ${prediction.targetLine}`);
+  }
+
+  /**
+   * 清空建议队列
+   */
+  private clearSuggestionQueue(reason?: string): void {
+    if (this.suggestionQueue.length > 0) {
+      const remaining = this.suggestionQueue.length - this.currentSuggestionIndex;
+      console.log(`[NESController] 🗑️ Clearing queue: ${remaining} suggestion(s) remaining${reason ? ` (${reason})` : ''}`);
+    }
+    
+    this.suggestionQueue = [];
+    this.currentSuggestionIndex = 0;
+    this.state = "IDLE";
+  }
+
+  /**
    * 检查是否有激活的建议
    */
   public hasActiveSuggestion(): boolean {
@@ -392,7 +807,14 @@ export class NESController {
    * 应用建议（跳转并展开预览）
    */
   public applySuggestion(): void {
-    this.renderer.jumpToSuggestion();
+    // 🔧 如果已经有预览，说明是第二次按 Tab，应该接受建议
+    if (this.renderer.hasViewZone()) {
+      this.acceptSuggestion();
+      return;
+    }
+    
+    // 🔧 第一次按 Tab，只展开预览（不跳转，因为 showCurrentSuggestion 已经跳转了）
+    console.log('[NESController] 📖 Expanding preview');
     this.renderer.showPreview();
   }
 
@@ -400,11 +822,79 @@ export class NESController {
    * 接受建议（应用代码修改）
    */
   public acceptSuggestion(): void {
-    this.renderer.applySuggestion();
+    console.log('[NESController] ✅ Accepting suggestion (applying code)');
     
-    // 应用 NES 建议后，锁定 FIM 500ms
+    const acceptedPrediction = this.suggestionQueue[this.currentSuggestionIndex];
+    if (!acceptedPrediction) {
+      console.warn('[NESController] No prediction to accept');
+      return;
+    }
+    
+    // 🔧 设置标记，表示正在应用建议
+    this.applyingSuggestionLine = acceptedPrediction.targetLine;
+    
+    // 应用建议
+    this.renderer.applySuggestion();
     this.arbiter.lockFim(500);
-    console.log('[NESController] Applied suggestion, FIM locked for 500ms');
+    
+    // 记录用户反馈
+    this.recordUserFeedback(acceptedPrediction, 'accepted');
+    
+    // 🔧 清除标记（延迟清除，确保编辑事件已处理）
+    setTimeout(() => {
+      this.applyingSuggestionLine = null;
+    }, 100);
+    
+    // 🆕 移动到下一个建议
+    this.currentSuggestionIndex++;
+    if (this.currentSuggestionIndex < this.suggestionQueue.length) {
+      console.log(`[NESController] 📍 Moving to next suggestion (${this.currentSuggestionIndex + 1}/${this.suggestionQueue.length})`);
+      
+      // 🔧 延迟显示下一个建议，确保当前建议的编辑已完成
+      setTimeout(() => {
+        this.showCurrentSuggestion();
+      }, 150);
+    } else {
+      console.log('[NESController] 🎉 All suggestions completed');
+      this.toast.show('All suggestions applied!', 'success', 2000);
+      this.clearSuggestionQueue('all accepted');
+    }
+  }
+
+  /**
+   * 🆕 跳过当前建议，跳转到下一个
+   */
+  public skipSuggestion(): void {
+    const skippedPrediction = this.suggestionQueue[this.currentSuggestionIndex];
+    if (skippedPrediction) {
+      this.recordUserFeedback(skippedPrediction, 'skipped');
+      console.log(`[NESController] ⏭️ Skipped suggestion at line ${skippedPrediction.targetLine}`);
+    }
+    
+    this.currentSuggestionIndex++;
+    if (this.currentSuggestionIndex < this.suggestionQueue.length) {
+      console.log('[NESController] Skipping to next suggestion...');
+      this.showCurrentSuggestion();
+    } else {
+      console.log('[NESController] No more suggestions');
+      this.clearSuggestionQueue('all skipped');
+    }
+  }
+
+  /**
+   * 🆕 拒绝所有剩余建议
+   */
+  public rejectAllSuggestions(): void {
+    // 记录所有剩余建议为拒绝
+    for (let i = this.currentSuggestionIndex; i < this.suggestionQueue.length; i++) {
+      const prediction = this.suggestionQueue[i];
+      if (prediction) {
+        this.recordUserFeedback(prediction, 'rejected');
+      }
+    }
+    
+    console.log('[NESController] ❌ All remaining suggestions rejected');
+    this.clearSuggestionQueue('user rejected all');
   }
 
   /**

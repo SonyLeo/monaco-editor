@@ -22,29 +22,32 @@ export class TabKeyHandler {
   public handleTab(): boolean {
     // 优先级 1: Monaco Suggest Widget（代码建议框）
     if (this.hasSuggestWidget()) {
-      console.log('[TabKey] Priority 1: Suggest Widget');
       this.editor.trigger('keyboard', 'acceptSelectedSuggestion', {});
       return true;
     }
 
     // 优先级 2: Inline Completion (FIM)
-    if (this.hasInlineCompletion()) {
-      console.log('[TabKey] Priority 2: Inline Completion (FIM)');
-      this.editor.trigger('keyboard', 'editor.action.inlineSuggest.commit', {});
+    const position = this.editor.getPosition();
+    const oldPosition = position ? { ...position } : null;
+    
+    this.editor.trigger('keyboard', 'editor.action.inlineSuggest.commit', {});
+    
+    // 检查光标是否移动了（说明有 inline completion 被接受）
+    const newPosition = this.editor.getPosition();
+    if (oldPosition && newPosition && 
+        (oldPosition.lineNumber !== newPosition.lineNumber || 
+         oldPosition.column !== newPosition.column)) {
       return true;
     }
 
     // 优先级 3 & 4: NES 建议（通过 Arbiter 决策）
     const currentSuggestion = this.arbiter.getCurrentSuggestion();
     if (currentSuggestion && currentSuggestion.type === 'NES') {
-      console.log('[TabKey] Priority 3/4: NES Suggestion');
-      // 让 Arbiter 处理（它会调用 applyNes，进而触发冷却锁）
       this.arbiter.handleTabKey();
       return true;
     }
 
     // 优先级 5: 默认缩进
-    console.log('[TabKey] Priority 5: Default indent');
     return false;
   }
 
@@ -65,9 +68,37 @@ export class TabKeyHandler {
    */
   private hasInlineCompletion(): boolean {
     try {
-      const widget = (this.editor as any).getContribution('editor.contrib.inlineSuggest');
-      return widget?.model?.state?.inlineCompletion !== undefined;
-    } catch {
+      // 方法 1：检查 inlineSuggest contribution
+      const inlineSuggestController = (this.editor as any).getContribution('editor.contrib.inlineSuggest');
+      
+      if (inlineSuggestController) {
+        // 尝试多种方式检测
+        const hasCompletion = 
+          inlineSuggestController.model?.state?.inlineCompletion !== undefined ||
+          inlineSuggestController.model?.selectedSuggestionInfo !== undefined ||
+          inlineSuggestController.model?.ghostText !== undefined;
+        
+        if (hasCompletion) {
+          return true;
+        }
+      }
+
+      // 方法 2：检查是否有 ghost text decorations
+      const model = this.editor.getModel();
+      if (model) {
+        const decorations = model.getAllDecorations();
+        const hasGhostText = decorations.some(d => 
+          d.options.className?.includes('ghost') || 
+          d.options.inlineClassName?.includes('ghost')
+        );
+        
+        if (hasGhostText) {
+          return true;
+        }
+      }
+
+      return false;
+    } catch (e) {
       return false;
     }
   }

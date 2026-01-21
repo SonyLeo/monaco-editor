@@ -23,7 +23,6 @@ export class FastCompletionProvider {
         try {
           // 检查冷却锁
           if (this.arbiter.isFimLocked()) {
-            console.log('[FastCompletion] FIM locked, skipping');
             return { items: [] };
           }
 
@@ -67,7 +66,6 @@ export class FastCompletionProvider {
 
           // 后缀去重检查
           if (this.checkSuffixDuplication(completion, suffix)) {
-            console.log('[FastCompletion] Suffix duplication detected, skipping');
             return { items: [] };
           }
 
@@ -78,7 +76,6 @@ export class FastCompletionProvider {
           });
 
           if (!accepted) {
-            console.log('[FastCompletion] Rejected by Arbiter');
             return { items: [] };
           }
 

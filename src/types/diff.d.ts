@@ -12,6 +12,8 @@ export interface DiffInfo {
   lines: number[];
   /** 变更的文本内容 */
   changes: DiffChange[];
+  /** 人类可读的变更摘要（用于 AI 分析） */
+  summary?: string;
   /** 原始 diff 字符串（可选） */
   rawDiff?: string;
 }

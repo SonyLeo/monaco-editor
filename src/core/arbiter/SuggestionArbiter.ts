@@ -49,7 +49,6 @@ export class SuggestionArbiter {
    */
   submitFimSuggestion(suggestion: Omit<FimSuggestion, 'type' | 'priority'>): boolean {
     if (this.isFimLocked()) {
-      console.log('[Arbiter] FIM locked, rejecting suggestion');
       return false;
     }
 
@@ -68,7 +67,7 @@ export class SuggestionArbiter {
   submitNesSuggestion(suggestion: Omit<NesSuggestion, 'type' | 'priority'>): boolean {
     const nesSuggestion: NesSuggestion = {
       type: 'NES',
-      priority: 1,
+      priority: 2, // NES 优先级高于 FIM (1)
       ...suggestion
     };
 
@@ -95,18 +94,15 @@ export class SuggestionArbiter {
     // 如果没有当前建议，直接接受
     if (!this.state.currentSuggestion) {
       this.state.currentSuggestion = suggestion;
-      console.log(`[Arbiter] Accepted ${suggestion.type} suggestion`);
       return true;
     }
 
-    // 比较优先级
-    if (suggestion.priority > this.state.currentSuggestion.priority) {
-      console.log(`[Arbiter] Replacing ${this.state.currentSuggestion.type} with higher priority ${suggestion.type}`);
+    // 比较优先级（优先级相同或更高时替换）
+    if (suggestion.priority >= this.state.currentSuggestion.priority) {
       this.state.currentSuggestion = suggestion;
       return true;
     }
 
-    console.log(`[Arbiter] Rejected ${suggestion.type} (lower priority than ${this.state.currentSuggestion.type})`);
     return false;
   }
 
@@ -115,28 +111,31 @@ export class SuggestionArbiter {
    */
   handleTabKey(): boolean {
     if (!this.state.currentSuggestion) {
-      console.log('[Arbiter] No suggestion to accept');
       return false;
     }
 
     const suggestion = this.state.currentSuggestion;
-    console.log(`[Arbiter] Accepting ${suggestion.type} suggestion via Tab`);
 
     // 根据类型应用建议
     switch (suggestion.type) {
       case 'WORD_FIX':
         this.applyWordFix(suggestion);
+        this.clearSuggestion();
         break;
       case 'FIM':
         this.applyFim(suggestion);
+        this.clearSuggestion();
         break;
       case 'NES':
+        // NES 特殊处理：展开预览时不清除，应用时才清除
+        const hadPreview = this.nesController?.hasActivePreview() || false;
         this.applyNes(suggestion);
+        if (hadPreview) {
+          this.clearSuggestion();
+        }
         break;
     }
 
-    // 清除当前建议
-    this.clearSuggestion();
     return true;
   }
 
@@ -183,8 +182,16 @@ export class SuggestionArbiter {
       return;
     }
 
-    // 委托给 NESController 处理（它会触发冷却锁）
-    this.nesController.acceptSuggestion();
+    // 检查是否已经有预览
+    if (this.nesController.hasActivePreview()) {
+      // 有预览 → 应用建议（会触发冷却锁）
+      this.nesController.acceptSuggestion();
+    } else {
+      // 没有预览 → 展开预览
+      this.nesController.applySuggestion();
+      // 不清除建议，保持 Arbiter 状态，以便下次 Tab 可以应用
+      return;
+    }
   }
 
   /**
@@ -193,7 +200,6 @@ export class SuggestionArbiter {
   lockFim(durationMs: number): void {
     this.state.fimLocked = true;
     this.state.lockUntil = Date.now() + durationMs;
-    console.log(`[Arbiter] FIM locked for ${durationMs}ms`);
 
     setTimeout(() => {
       this.unlockFim();
@@ -206,7 +212,6 @@ export class SuggestionArbiter {
   private unlockFim(): void {
     if (Date.now() >= this.state.lockUntil) {
       this.state.fimLocked = false;
-      console.log('[Arbiter] FIM unlocked');
     }
   }
 
@@ -225,7 +230,6 @@ export class SuggestionArbiter {
    */
   clearSuggestion(): void {
     this.state.currentSuggestion = null;
-    console.log('[Arbiter] Cleared current suggestion');
   }
 
   /**

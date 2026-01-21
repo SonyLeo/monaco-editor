@@ -39,12 +39,108 @@ export class DiffEngine {
     // 确定变更类型
     const type = this.detectChangeType(oldCode, newCode, analysis);
 
+    // 生成人类可读的 summary
+    const summary = this.generateSummary(oldCode, newCode, analysis, type, lines);
+
     return {
       type,
       lines,
       changes,
+      summary,
       rawDiff: JSON.stringify(diffs)
     };
+  }
+
+  /**
+   * 生成人类可读的变更摘要（增强版：更详细的语义描述）
+   */
+  private generateSummary(
+    oldCode: string,
+    newCode: string,
+    analysis: ChangeAnalysis,
+    type: DiffInfo['type'],
+    lines: number[]
+  ): string {
+    // 函数重命名
+    if (analysis.isFunctionRename) {
+      const oldMatch = oldCode.match(/function\s+(\w+)/);
+      const newMatch = newCode.match(/function\s+(\w+)/);
+      if (oldMatch && newMatch && oldMatch[1] !== newMatch[1]) {
+        return `Renamed function '${oldMatch[1]}' to '${newMatch[1]}'`;
+      }
+    }
+
+    // 变量重命名
+    if (analysis.isVariableRename) {
+      const oldMatch = oldCode.match(/(const|let|var)\s+(\w+)/);
+      const newMatch = newCode.match(/(const|let|var)\s+(\w+)/);
+      if (oldMatch && newMatch && oldMatch[2] !== newMatch[2]) {
+        return `Renamed variable '${oldMatch[2]}' to '${newMatch[2]}'`;
+      }
+    }
+
+    // 参数变更
+    if (analysis.isParameterChange) {
+      const oldParams = oldCode.match(/\(([^)]*)\)/)?.[1] || '';
+      const newParams = newCode.match(/\(([^)]*)\)/)?.[1] || '';
+      if (oldParams !== newParams) {
+        const funcName = newCode.match(/function\s+(\w+)/)?.[1] || 
+                        newCode.match(/(\w+)\s*\(/)?.[1] || 'function';
+        return `Changed parameters of '${funcName}': (${oldParams}) → (${newParams})`;
+      }
+    }
+
+    // 🆕 检测标识符变更（更通用的重命名检测）
+    if (analysis.changedIdentifiers.length > 0) {
+      const oldIdentifiers = this.extractIdentifiers(oldCode);
+      const newIdentifiers = this.extractIdentifiers(newCode);
+      
+      // 找出被替换的标识符
+      const removed = oldIdentifiers.filter(id => !newIdentifiers.includes(id));
+      const added = newIdentifiers.filter(id => !oldIdentifiers.includes(id));
+      
+      if (removed.length === 1 && added.length === 1) {
+        return `Renamed '${removed[0]}' to '${added[0]}'`;
+      }
+    }
+
+    // 通用变更 - 显示具体的行变化
+    const oldLines = oldCode.split('\n');
+    const newLines = newCode.split('\n');
+    
+    if (lines.length > 0 && lines[0] !== undefined && lines[0] <= oldLines.length) {
+      const lineNum = lines[0];
+      const oldLine = oldLines[lineNum - 1]?.trim() || '';
+      const newLine = newLines[lineNum - 1]?.trim() || '';
+      
+      if (oldLine && newLine && oldLine !== newLine) {
+        // 截断过长的行
+        const maxLen = 60;
+        const truncate = (s: string) => s.length > maxLen ? s.substring(0, maxLen) + '...' : s;
+        return `Line ${lineNum}: "${truncate(oldLine)}" → "${truncate(newLine)}"`;
+      }
+    }
+
+    // 默认摘要（更详细）
+    if (type === 'INSERT') {
+      return `Inserted ${newCode.length} characters at line ${lines[0] || '?'}`;
+    }
+    if (type === 'DELETE') {
+      return `Deleted ${oldCode.length} characters from line ${lines[0] || '?'}`;
+    }
+    
+    return `Modified ${lines.length} line(s) - ${analysis.changedIdentifiers.length} identifier(s) changed`;
+  }
+
+  /**
+   * 提取代码中的标识符
+   */
+  private extractIdentifiers(code: string): string[] {
+    const identifierRegex = /\b[a-zA-Z_$][a-zA-Z0-9_$]*\b/g;
+    const matches = code.match(identifierRegex) || [];
+    // 过滤掉关键字
+    const keywords = new Set(['function', 'const', 'let', 'var', 'if', 'else', 'for', 'while', 'return', 'class', 'interface', 'type', 'import', 'export', 'from', 'as', 'new', 'this', 'super', 'extends', 'implements']);
+    return [...new Set(matches.filter(id => !keywords.has(id)))];
   }
 
   /**

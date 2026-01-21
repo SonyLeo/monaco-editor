@@ -25,15 +25,21 @@ export class NESRenderer {
   /**
    * 只渲染 Glyph Icon（不渲染 ViewZone）
    */
-  public renderGlyphIcon(line: number): void {
-    console.log(`[NESRenderer] 🎯 Rendering Glyph Icon at line ${line}`);
+  public renderGlyphIcon(line: number, suggestion: string, explanation: string, originalLineContent?: string): void {
+    // 保存建议信息，以便后续展开预览
+    this.currentSuggestion = {
+      targetLine: line,
+      suggestionText: suggestion,
+      explanation,
+      originalLineContent
+    };
 
     this.decorations.set([{
       range: new monaco.Range(line, 1, line, 1),
       options: {
         glyphMarginClassName: 'nes-arrow-icon',
         glyphMarginHoverMessage: {
-          value: `💡 **NES Suggestion**\n\n*Click to preview or press Tab to accept*`
+          value: `💡 **NES Suggestion**\n\n${explanation}\n\n*Click to preview or press Tab to accept*`
         },
         overviewRuler: {
           color: '#4a9eff',
@@ -41,8 +47,6 @@ export class NESRenderer {
         }
       }
     }]);
-
-    console.log(`[NESRenderer] ✅ Glyph Icon rendered`);
   }
 
   /**
@@ -50,17 +54,12 @@ export class NESRenderer {
    */
   public hideViewZone(): void {
     this.clearViewZone();
-    console.log('[NESRenderer] ViewZone hidden (Glyph Icon preserved)');
   }
 
   /**
-   * 显示行号旁的紫色箭头指示器
+   * 显示行号旁的紫色箭头指示器（已废弃，使用 renderGlyphIcon）
    */
   public showIndicator(line: number, suggestion: string, explanation: string): void {
-    console.log(`[NESRenderer] 🎯 Showing indicator at line ${line}`);
-    console.log(`[NESRenderer]    Suggestion: "${suggestion.substring(0, 50)}..."`);
-    console.log(`[NESRenderer]    Explanation: "${explanation}"`);
-
     this.currentSuggestion = {
       targetLine: line,
       suggestionText: suggestion,
@@ -74,23 +73,21 @@ export class NESRenderer {
         glyphMarginHoverMessage: {
           value: `💡 **NES Suggestion**\n\n${explanation}\n\n*Press Alt+Enter to navigate*`
         },
-        // 在滚动条上也显示标记（蓝色主题）
         overviewRuler: {
           color: '#4a9eff',
           position: monaco.editor.OverviewRulerLane.Right
         }
       }
     }]);
-
-    console.log(`[NESRenderer] ✅ Indicator rendered successfully`);
-    console.log(`[NESRenderer] 💡 TIP: Press Alt+Enter to jump, or click the purple arrow`);
   }
 
   /**
    * 显示预览（使用原生 DiffEditor 嵌入 ViewZone）
    */
   public showPreview(): void {
-    if (!this.currentSuggestion || this.viewZoneIds.length > 0) return;
+    if (!this.currentSuggestion || this.viewZoneIds.length > 0) {
+      return;
+    }
 
     const { targetLine, suggestionText, originalLineContent } = this.currentSuggestion;
     
@@ -99,33 +96,25 @@ export class NESRenderer {
     const languageId = model ? model.getLanguageId() : 'javascript';
     
     // 准备 Diff 内容
-    // 如果没有 originalLineContent，则回退到获取当前行内容
     const originalText = originalLineContent || model?.getLineContent(targetLine) || '';
     const modifiedText = suggestionText;
 
-    // 计算所需高度（原生 DiffEditor 需要显式高度）
-    // Inline 模式下，高度近似为：删除行数 + 新增行数
+    // 计算所需高度
     const originalLineCount = originalText.split('\n').length;
     const modifiedLineCount = modifiedText.split('\n').length;
-    
-    // 关键修正：确保高度足够容纳所有行 + padding
-    // DiffEditor 自身也有一些 padding，所以我们需要多加一点
     const diffLineCount = originalLineCount + modifiedLineCount;
-    // 使用 lineHeight 进行精确像素计算
     const lineHeight = this.editor.getOption(monaco.editor.EditorOption.lineHeight);
-    const heightInPx = diffLineCount * lineHeight + 10; // +10px padding
+    const heightInPx = diffLineCount * lineHeight + 10;
 
     this.editor.changeViewZones((changeAccessor) => {
       const domNode = document.createElement('div');
       domNode.className = 'nes-native-diff-container';
-      // 必须显式设置像素高度，否则 DiffEditor 可能无法正确测量
       domNode.style.height = `${heightInPx}px`;
       domNode.style.overflow = 'hidden';
       
-      // 创建 ViewZone
       const viewZone: monaco.editor.IViewZone = {
         afterLineNumber: targetLine,
-        heightInPx: heightInPx, // 使用像素高度代替 heightInLines，更精确
+        heightInPx: heightInPx,
         domNode: domNode,
         onDomNodeTop: (_) => {
           if (this.diffEditor) return;
@@ -209,8 +198,6 @@ export class NESRenderer {
     const { targetLine } = this.currentSuggestion;
     this.editor.setPosition({ lineNumber: targetLine, column: 1 });
     this.editor.revealLineInCenter(targetLine);
-
-    console.log(`[NESRenderer] Jumped to line ${targetLine}`);
   }
 
   /**
@@ -237,7 +224,6 @@ export class NESRenderer {
     }]);
 
     this.clear();
-    console.log('[NESRenderer] Suggestion applied');
   }
 
   /**
@@ -275,8 +261,6 @@ export class NESRenderer {
         this.diffModels.modified.dispose();
         this.diffModels.modified = null;
       }
-      
-      console.log('[NESRenderer] ViewZone cleared');
     }
   }
 
@@ -308,6 +292,5 @@ export class NESRenderer {
    */
   public dispose(): void {
     this.clear();
-    console.log('[NESRenderer] Disposed');
   }
 }
