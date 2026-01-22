@@ -1,9 +1,12 @@
 /**
- * 编辑历史和用户反馈格式化工具
+ * NES 专用格式化工具
+ * 用于格式化编辑历史、用户反馈等 NES 特定数据
  */
 
 /**
- * 格式化编辑历史为易读格式
+ * 格式化编辑历史为 NES 格式（包含语义信息）
+ * @param {Array} history - 编辑历史数组
+ * @returns {string} 格式化后的历史文本
  */
 export function formatEditHistory(history) {
   if (!history || history.length === 0) {
@@ -38,6 +41,8 @@ export function formatEditHistory(history) {
 
 /**
  * 格式化用户反馈
+ * @param {Array} feedback - 用户反馈数组
+ * @returns {string} 格式化后的反馈文本
  */
 export function formatUserFeedback(feedback) {
   if (!feedback || feedback.length === 0) {
@@ -55,6 +60,9 @@ export function formatUserFeedback(feedback) {
 
 /**
  * 智能增强 recent change 描述
+ * @param {string} diffSummary - 差异摘要
+ * @param {Array} editHistory - 编辑历史
+ * @returns {string} 增强后的描述
  */
 export function enhanceRecentChange(diffSummary, editHistory) {
   if (!editHistory || editHistory.length === 0) {
@@ -72,33 +80,14 @@ export function enhanceRecentChange(diffSummary, editHistory) {
 }
 
 /**
- * 构建用户 Prompt
+ * 格式化代码窗口（添加行号）
+ * @param {string} codeWindow - 代码窗口内容
+ * @param {Object} windowInfo - 窗口信息
+ * @returns {string} 带行号的代码
  */
-export function buildUserPrompt(codeWindow, windowInfo, diffSummary, editHistory, userFeedback) {
-  const formattedHistory = formatEditHistory(editHistory);
-  const formattedFeedback = formatUserFeedback(userFeedback);
-  const enhancedChange = enhanceRecentChange(diffSummary, editHistory);
-
-  return `<edit_history>
-${formattedHistory}
-</edit_history>
-
-<user_feedback>
-${formattedFeedback}
-</user_feedback>
-
-<recent_change>
-${enhancedChange}
-</recent_change>
-
-<file_info>
-Total Lines: ${windowInfo.totalLines}
-Window Start: ${windowInfo.startLine}
-</file_info>
-
-<code_window>
-${codeWindow.split('\n').map((line, i) => `${windowInfo.startLine + i}: ${line}`).join('\n')}
-</code_window>
-
-Analyze the <edit_history> and <user_feedback> to understand user intent, then predict the next logical edit in <code_window>.`;
+export function formatCodeWindow(codeWindow, windowInfo) {
+  return codeWindow
+    .split('\n')
+    .map((line, i) => `${windowInfo.startLine + i}: ${line}`)
+    .join('\n');
 }

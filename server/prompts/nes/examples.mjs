@@ -1,8 +1,73 @@
 /**
- * Few-Shot 示例库
+ * NES Few-Shot 示例库
  * 每种模式提供 1-2 个高质量示例
  */
 
+/**
+ * NES 完整示例（用于文档和测试）
+ */
+export const NES_FULL_EXAMPLE = `
+user:
+<edit_history>
+[1] 10:30:15 | Line 5:10
+   Action: replace
+   Old: "createUser"
+   New: "createUser123"
+   Context: functionName
+   Line: function createUser123(name: string) {
+</edit_history>
+<recent_change>
+Renamed function 'createUser' to 'createUser123'
+</recent_change>
+<code_window>
+5: function createUser123(name: string) {
+6:   return { name };
+7: }
+8:
+9: const user1 = createUser("Alice");
+10: const user2 = createUser("Bob");
+11: const user3 = createUser("Charlie");
+</code_window>
+
+assistant:
+{
+  "analysis": {
+    "change_type": "renameFunction",
+    "summary": "Function 'createUser' renamed to 'createUser123'",
+    "impact": "Need to update all 3 function calls to use the new name",
+    "pattern": "Function rename - all usages must be updated"
+  },
+  "predictions": [
+    {
+      "targetLine": 9,
+      "originalLineContent": "const user1 = createUser(\\"Alice\\");",
+      "suggestionText": "const user1 = createUser123(\\"Alice\\");",
+      "explanation": "Update function call to match renamed function",
+      "confidence": 0.95,
+      "priority": 1
+    },
+    {
+      "targetLine": 10,
+      "originalLineContent": "const user2 = createUser(\\"Bob\\");",
+      "suggestionText": "const user2 = createUser123(\\"Bob\\");",
+      "explanation": "Update function call to match renamed function",
+      "confidence": 0.95,
+      "priority": 1
+    },
+    {
+      "targetLine": 11,
+      "originalLineContent": "const user3 = createUser(\\"Charlie\\");",
+      "suggestionText": "const user3 = createUser123(\\"Charlie\\");",
+      "explanation": "Update function call to match renamed function",
+      "confidence": 0.95,
+      "priority": 1
+    }
+  ]
+}`;
+
+/**
+ * 模式示例库
+ */
 export const PATTERN_EXAMPLES = {
   add_field: `Example: Adding field to TypeScript class
 
@@ -240,6 +305,8 @@ function calculate() {
 
 /**
  * 获取指定模式的 Few-shot 示例
+ * @param {string} patternType - 模式类型
+ * @returns {string} 示例文本
  */
 export function getFewShotExamples(patternType) {
   return PATTERN_EXAMPLES[patternType] || '';

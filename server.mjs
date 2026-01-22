@@ -2,8 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { getConfig } from './server/config.mjs';
 import { API_ENDPOINTS, API_URLS, COMPLETION_CONFIG, NES_PREDICTION_CONFIG } from './server/constants.mjs';
-import { NES_SYSTEM_PROMPT, FIM_COMPLETION_PROMPT } from './server/prompts/nesSystemPrompt.mjs';
-import { buildUserPrompt } from './server/formatters/promptFormatters.mjs';
+import { NES_SYSTEM_PROMPT, FIM_FAST_PROMPT, buildNESUserPrompt } from './server/prompts/index.mjs';
 import { parseAIResponse, formatPredictionResponse } from './server/utils/jsonParser.mjs';
 
 // 获取并验证配置
@@ -36,7 +35,7 @@ app.post('/api/completion', async (req, res) => {
         messages: [
           {
             role: 'system',
-            content: FIM_COMPLETION_PROMPT
+            content: FIM_FAST_PROMPT
           },
           {
             role: 'user',
@@ -102,7 +101,7 @@ app.post('/api/next-edit-prediction', async (req, res) => {
     }
 
     // 使用格式化工具构建 User Prompt
-    const userPrompt = buildUserPrompt(codeWindow, windowInfo, diffSummary, editHistory, userFeedback);
+    const userPrompt = buildNESUserPrompt(codeWindow, windowInfo, diffSummary, editHistory, userFeedback);
     
     // 调试模式
     if (process.env.DEBUG_PROMPT === 'true') {

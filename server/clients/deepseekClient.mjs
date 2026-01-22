@@ -1,6 +1,6 @@
 import { BaseModelClient } from './baseModelClient.mjs';
 import { DEEPSEEK_CONFIG, API_RESPONSE_PATHS, STOP_SEQUENCES } from '../constants.mjs';
-import { SYSTEM_BASE_PROMPT, createCodeInstruction, createUserPrompt } from '../prompts.mjs';
+import { FIM_SYSTEM_PROMPT, createCodeInstruction, createUserPrompt } from '../prompts/index.mjs';
 
 /**
  * DeepSeek 模型客户端
@@ -16,7 +16,7 @@ class DeepSeekClient extends BaseModelClient {
    */
   buildRequestBody(prompt, maxTokens, stopSequences) {
     // 构建 system 和 user prompt
-    const systemPrompt = `${prompt.context}\n\n${SYSTEM_BASE_PROMPT}`;
+    const systemPrompt = `${prompt.context}\n\n${FIM_SYSTEM_PROMPT}`;
     const instruction = createCodeInstruction(prompt.language || 'javascript');
     const userPrompt = createUserPrompt(instruction, prompt.fileContent);
 

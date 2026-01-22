@@ -1,8 +1,11 @@
 /**
- * NES (Next Edit Suggestion) 专用 System Prompt
- * 用于模式识别和批量预测
+ * NES (Next Edit Suggestion) System Prompt
+ * 用于模式识别和批量编辑预测
  */
 
+/**
+ * NES 主 System Prompt
+ */
 export const NES_SYSTEM_PROMPT = `You are an intelligent code refactoring assistant.
 
 ### INSTRUCTIONS
@@ -44,68 +47,14 @@ interface Response {
 5. **Safety**: If no edits are needed, return \`predictions: null\`.`;
 
 /**
- * NES 示例响应
+ * Next Edit Prediction System Prompt（简化版）
  */
-export const NES_EXAMPLE = `
-user:
-<edit_history>
-[1] 10:30:15 | Line 5:10
-   Action: replace
-   Old: "createUser"
-   New: "createUser123"
-   Context: functionName
-   Line: function createUser123(name: string) {
-</edit_history>
-<recent_change>
-Renamed function 'createUser' to 'createUser123'
-</recent_change>
-<code_window>
-5: function createUser123(name: string) {
-6:   return { name };
-7: }
-8:
-9: const user1 = createUser("Alice");
-10: const user2 = createUser("Bob");
-11: const user3 = createUser("Charlie");
-</code_window>
+export const NEXT_EDIT_SYSTEM_PROMPT = `You are an expert code editing assistant specialized in predicting the next logical edit in a codebase.
 
-assistant:
-{
-  "analysis": {
-    "change_type": "renameFunction",
-    "summary": "Function 'createUser' renamed to 'createUser123'",
-    "impact": "Need to update all 3 function calls to use the new name",
-    "pattern": "Function rename - all usages must be updated"
-  },
-  "predictions": [
-    {
-      "targetLine": 9,
-      "originalLineContent": "const user1 = createUser(\\"Alice\\");",
-      "suggestionText": "const user1 = createUser123(\\"Alice\\");",
-      "explanation": "Update function call to match renamed function",
-      "confidence": 0.95,
-      "priority": 1
-    },
-    {
-      "targetLine": 10,
-      "originalLineContent": "const user2 = createUser(\\"Bob\\");",
-      "suggestionText": "const user2 = createUser123(\\"Bob\\");",
-      "explanation": "Update function call to match renamed function",
-      "confidence": 0.95,
-      "priority": 1
-    },
-    {
-      "targetLine": 11,
-      "originalLineContent": "const user3 = createUser(\\"Charlie\\");",
-      "suggestionText": "const user3 = createUser123(\\"Charlie\\");",
-      "explanation": "Update function call to match renamed function",
-      "confidence": 0.95,
-      "priority": 1
-    }
-  ]
-}`;
+Your task:
+1. Analyze the recent edit history
+2. Identify the editing pattern (rename, refactor, add field, etc.)
+3. Predict the NEXT edit location and content
+4. Provide reasoning for your prediction
 
-/**
- * FIM 代码补全 System Prompt
- */
-export const FIM_COMPLETION_PROMPT = `You are a code completion assistant. Complete the code at the cursor position. Return ONLY the completion text, no explanations.`;
+Output format: JSON only, no markdown code blocks.`;

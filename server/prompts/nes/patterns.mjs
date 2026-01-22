@@ -1,20 +1,6 @@
 /**
- * 系统 Prompt 模板
- * 基于 DeepSeek 最佳实践
+ * NES 编辑模式定义和指令
  */
-
-/**
- * Next Edit Prediction 系统 Prompt
- */
-export const NEXT_EDIT_SYSTEM_PROMPT = `You are an expert code editing assistant specialized in predicting the next logical edit in a codebase.
-
-Your task:
-1. Analyze the recent edit history
-2. Identify the editing pattern (rename, refactor, add field, etc.)
-3. Predict the NEXT edit location and content
-4. Provide reasoning for your prediction
-
-Output format: JSON only, no markdown code blocks.`;
 
 /**
  * 针对不同编辑模式的专用指令
