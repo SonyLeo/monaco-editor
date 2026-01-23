@@ -3,7 +3,7 @@
  */
 import { NEXT_EDIT_SYSTEM_PROMPT } from './systemPrompt.mjs';
 import { PATTERN_SPECIFIC_INSTRUCTIONS } from './patterns.mjs';
-import { getFewShotExamples } from './examples.mjs';
+import { getFewShotExamples, CHANGE_TYPE_EXAMPLES } from './examples.mjs';
 import {
   formatEditHistory,
   formatUserFeedback,
@@ -143,5 +143,10 @@ Window Start: ${windowInfo.startLine}
 ${formattedCode}
 </code_window>
 
-Analyze the <edit_history> and <user_feedback> to understand user intent, then predict the next logical edit in <code_window>.`;
+<change_type_examples>
+${CHANGE_TYPE_EXAMPLES}
+</change_type_examples>
+
+Analyze the <edit_history> and <user_feedback> to understand user intent, then predict the next logical edit in <code_window>.
+CRITICAL: You MUST include the correct "changeType" field in each prediction. Review <change_type_examples> to understand how to classify changes.`;
 }

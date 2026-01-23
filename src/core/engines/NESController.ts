@@ -620,7 +620,7 @@ export class NESController {
       this.updateHintBar(prediction);
       
       // 立即展开预览
-      this.renderer.showPreview();
+      this.renderer.showPreview(prediction);
       return;
     }
 
@@ -645,7 +645,7 @@ export class NESController {
     this.applyingSuggestionLine = acceptedPrediction.targetLine;
     
     // 应用建议
-    this.renderer.applySuggestion();
+    this.renderer.applySuggestion(acceptedPrediction);
     this.arbiter.lockFim(NES_CONFIG.TIME.LOCK_DURATION_MS);
     
     // 记录用户反馈

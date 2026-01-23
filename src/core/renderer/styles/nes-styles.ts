@@ -42,6 +42,105 @@ function getNESStyles(glyphIconDataUrl: string): string {
       transform: scale(1.08);
     }
 
+    /* ==================== 场景装饰样式 ==================== */
+    
+    /* 红色高亮（REPLACE 模式 - 错误标记，整行背景） */
+    .nes-demo-error-highlight {
+      background-color: rgba(255, 0, 0, 0.15) !important;
+    }
+
+    /* 红色高亮（DELETE 模式 - 标记需要删除的行，整行背景） */
+    .nes-demo-delete-highlight {
+      background-color: rgba(255, 0, 0, 0.2) !important;
+    }
+
+    /* 红色高亮（只高亮单词，REPLACE_WORD 场景） */
+    .nes-demo-error-word-highlight {
+      background-color: rgba(255, 0, 0, 0.25) !important;
+      border-radius: 3px;
+      padding: 2px 4px;
+      border: 1px solid rgba(255, 0, 0, 0.3);
+    }
+
+    /* 蓝色高亮（INSERT 模式 - 插入位置，整行背景） */
+    .nes-demo-insert-highlight {
+      background-color: rgba(0, 122, 204, 0.1) !important;
+    }
+
+    /* ViewZone 预览行（REPLACE 模式 - 灰色文本，整行背景） */
+    .nes-demo-preview-zone {
+      background-color: rgba(0, 255, 0, 0.08) !important;
+      color: #858585 !important;
+      font-family: 'Consolas', 'Courier New', monospace;
+      font-size: 14px;
+      line-height: 19px;
+      padding-left: 0;
+      margin-left: 0;
+      font-style: italic;
+      white-space: pre;
+    }
+
+    /* ViewZone 预览行（INSERT 模式 - 灰色文本，整行背景） */
+    .nes-demo-preview-zone-insert {
+      background-color: rgba(0, 255, 0, 0.08) !important;
+      color: #858585 !important;
+      font-family: 'Consolas', 'Courier New', monospace;
+      font-size: 14px;
+      line-height: 19px;
+      padding-left: 0;
+      margin-left: 0;
+      font-style: italic;
+      white-space: pre;
+    }
+
+    /* ViewZone 预览行（只显示单词，REPLACE_WORD 场景） */
+    .nes-demo-preview-zone-word-only {
+      font-family: 'Consolas', 'Courier New', monospace;
+      font-size: 14px;
+      line-height: 19px;
+      padding-left: 0;
+      margin-top: 4px;
+      margin-left: 10px;
+      white-space: pre;
+    }
+
+    /* 箭头样式（SVG） */
+    .nes-demo-arrow {
+      display: inline-flex;
+      align-items: center;
+      vertical-align: middle;
+    }
+
+    .nes-demo-arrow svg {
+      color: #ffffff;
+      width: 16px;
+      height: 16px;
+      vertical-align: middle;
+    }
+
+    /* 预览单词样式（带背景，REPLACE_WORD 场景） */
+    .nes-demo-preview-word-with-bg {
+      background-color: rgba(0, 255, 0, 0.15);
+      color: #667de8;
+      font-style: italic;
+      border-radius: 3px;
+      padding: 2px 4px;
+      margin-left: 4px;
+      border: 1px solid rgba(0, 255, 0, 0.25);
+    }
+
+    /* 行内插入预览样式（INLINE_INSERT 场景） */
+    .nes-demo-inline-insert-preview {
+      background-color: rgba(0, 255, 0, 0.15) !important;
+      color: #858585 !important;
+      font-style: italic !important;
+      border-radius: 3px;
+      padding: 2px 4px;
+      border: 1px solid rgba(0, 255, 0, 0.25);
+    }
+
+    /* ==================== Diff 样式 ==================== */
+
     /* 增强的 Diff 样式 */
     .nes-native-diff-container {
       border-left: 3px solid #667eea;
