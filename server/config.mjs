@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { PROVIDERS } from './constants.mjs';
 
 /**
  * 验证环境变量配置
@@ -9,18 +10,18 @@ function validateConfig() {
   // 检查 AI_PROVIDER
   const provider = process.env.AI_PROVIDER?.toLowerCase();
   if (!provider) {
-    errors.push('AI_PROVIDER is required. Set it to "deepseek" or "qwen"');
-  } else if (!['deepseek', 'qwen'].includes(provider)) {
-    errors.push(`Invalid AI_PROVIDER: ${provider}. Must be "deepseek" or "qwen"`);
+    errors.push(`AI_PROVIDER is required. Set it to "${PROVIDERS.DEEPSEEK}" or "${PROVIDERS.QWEN}"`);
+  } else if (!Object.values(PROVIDERS).includes(provider)) {
+    errors.push(`Invalid AI_PROVIDER: ${provider}. Must be "${PROVIDERS.DEEPSEEK}" or "${PROVIDERS.QWEN}"`);
   }
   
   // 根据 Provider 检查对应的 API Key
-  if (provider === 'deepseek' && !process.env.DEEPSEEK_API_KEY) {
-    errors.push('DEEPSEEK_API_KEY is required when AI_PROVIDER=deepseek');
+  if (provider === PROVIDERS.DEEPSEEK && !process.env.DEEPSEEK_API_KEY) {
+    errors.push(`DEEPSEEK_API_KEY is required when AI_PROVIDER=${PROVIDERS.DEEPSEEK}`);
   }
   
-  if (provider === 'qwen' && !process.env.QWEN_API_KEY) {
-    errors.push('QWEN_API_KEY is required when AI_PROVIDER=qwen');
+  if (provider === PROVIDERS.QWEN && !process.env.QWEN_API_KEY) {
+    errors.push(`QWEN_API_KEY is required when AI_PROVIDER=${PROVIDERS.QWEN}`);
   }
   
   // 检查端口配置
@@ -50,7 +51,7 @@ export function getConfig() {
   }
   
   const provider = process.env.AI_PROVIDER.toLowerCase();
-  const apiKey = provider === 'deepseek' 
+  const apiKey = provider === PROVIDERS.DEEPSEEK 
     ? process.env.DEEPSEEK_API_KEY 
     : process.env.QWEN_API_KEY;
   

@@ -123,8 +123,22 @@ export class BaseModelClient {
    */
   logRequest(prompt, modelName) {
     console.log(`📝 收到 ${modelName} 补全请求`);
-    console.log('📍 Context:', this.truncate(prompt.context, LOG_CONFIG.MAX_CONTEXT_PREVIEW));
-    console.log('📄 File content length:', prompt.fileContent.length);
+    
+    // FIM 模式
+    if (prompt.prefix !== undefined) {
+      console.log('📍 Prefix length:', prompt.prefix?.length || 0);
+      console.log('📍 Suffix length:', prompt.suffix?.length || 0);
+    }
+    // Chat 模式
+    else if (prompt.systemPrompt !== undefined) {
+      console.log('📍 System prompt length:', prompt.systemPrompt?.length || 0);
+      console.log('📍 User prompt length:', prompt.userPrompt?.length || 0);
+    }
+    // 旧版兼容
+    else if (prompt.context !== undefined) {
+      console.log('📍 Context:', this.truncate(prompt.context, LOG_CONFIG.MAX_CONTEXT_PREVIEW));
+      console.log('📄 File content length:', prompt.fileContent?.length || 0);
+    }
   }
 
   /**
@@ -133,6 +147,12 @@ export class BaseModelClient {
    * @returns {number} 最优 token 数
    */
   calculateTokens() {
+    // Chat 模式使用配置的 MAX_TOKENS
+    if (this.modelType === 'chat') {
+      return this.config.MAX_TOKENS || MODEL_COMMON_CONFIG.TOKEN_LIMITS.DEFAULT;
+    }
+    
+    // FIM 模式使用默认值（可被子类重写）
     return MODEL_COMMON_CONFIG.TOKEN_LIMITS.DEFAULT;
   }
 
@@ -217,8 +237,24 @@ export class BaseModelClient {
    */
   logSuccess(completionText, data, maxTokens) {
     console.log('✅ 生成的补全:', this.truncate(completionText, LOG_CONFIG.MAX_PREVIEW_LENGTH) || 'null');
-    console.log('📊 使用的 tokens:', this.getNestedValue(data, 'usage.total_tokens') || 'unknown');
-    console.log('🎯 Max tokens 配置:', maxTokens);
+    
+    // 详细的 token 统计
+    const usage = data.usage;
+    if (usage) {
+      console.log('📊 Token 统计:');
+      console.log('   - Input tokens:', usage.prompt_tokens || 'N/A');
+      console.log('   - Output tokens:', usage.completion_tokens || 'N/A');
+      console.log('   - Total tokens:', usage.total_tokens || 'N/A');
+      console.log('🎯 Max tokens 配置:', maxTokens, '(仅限制 output)');
+      
+      // 检查是否超出限制
+      if (usage.completion_tokens && usage.completion_tokens > maxTokens) {
+        console.warn('⚠️  Output tokens 超出配置:', usage.completion_tokens, '>', maxTokens);
+      }
+    } else {
+      console.log('📊 使用的 tokens:', this.getNestedValue(data, 'usage.total_tokens') || 'unknown');
+      console.log('🎯 Max tokens 配置:', maxTokens);
+    }
   }
 
   // ==================== 抽象方法 ====================

@@ -1,9 +1,11 @@
 import express from 'express';
 import cors from 'cors';
 import { getConfig } from './server/config.mjs';
-import { API_ENDPOINTS, API_URLS, COMPLETION_CONFIG, NES_PREDICTION_CONFIG } from './server/constants.mjs';
-import { NES_SYSTEM_PROMPT, FIM_FAST_PROMPT, buildNESUserPrompt } from './server/prompts/index.mjs';
+import { API_ENDPOINTS, PROVIDERS, FAST_TRACK_CONFIG, SLOW_TRACK_CONFIG } from './server/constants.mjs';
+import { NES_SYSTEM_PROMPT, buildNESUserPrompt } from './server/prompts/index.mjs';
 import { parseAIResponse, formatPredictionResponse } from './server/utils/jsonParser.mjs';
+import { callDeepSeekFIM, callDeepSeekChat } from './server/clients/deepseekClient.mjs';
+import { callQwenFIM, callQwenChat } from './server/clients/qwenClient.mjs';
 
 // 获取并验证配置
 const config = getConfig();
@@ -14,46 +16,69 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+/**
+ * Provider 客户端映射
+ */
+const FIM_CLIENTS = {
+  [PROVIDERS.DEEPSEEK]: callDeepSeekFIM,
+  [PROVIDERS.QWEN]: callQwenFIM,
+};
+
+const CHAT_CLIENTS = {
+  [PROVIDERS.DEEPSEEK]: callDeepSeekChat,
+  [PROVIDERS.QWEN]: callQwenChat,
+};
+
+/**
+ * 调用 FIM API（Fast Track）
+ * @param {string} provider - PROVIDERS.DEEPSEEK | PROVIDERS.QWEN
+ * @param {string} prefix - 前缀代码
+ * @param {string} suffix - 后缀代码
+ * @param {string} apiKey - API 密钥
+ * @returns {Promise<string>} 补全结果
+ */
+async function callFIMAPI(provider, prefix, suffix, apiKey) {
+  const clientFn = FIM_CLIENTS[provider];
+  const providerConfig = FAST_TRACK_CONFIG[provider];
+  
+  if (!clientFn || !providerConfig) {
+    throw new Error(`Unknown provider: ${provider}`);
+  }
+  
+  const prompt = { prefix, suffix };
+  const result = await clientFn(prompt, apiKey);
+  return result.text || '';
+}
+
+/**
+ * 调用 Chat API（Slow Track）
+ * @param {string} provider - PROVIDERS.DEEPSEEK | PROVIDERS.QWEN
+ * @param {string} systemPrompt - 系统提示词
+ * @param {string} userPrompt - 用户提示词
+ * @param {string} apiKey - API 密钥
+ * @returns {Promise<string>} 响应结果
+ */
+async function callChatAPI(provider, systemPrompt, userPrompt, apiKey) {
+  const clientFn = CHAT_CLIENTS[provider];
+  const providerConfig = SLOW_TRACK_CONFIG[provider];
+  
+  if (!clientFn || !providerConfig) {
+    throw new Error(`Unknown provider: ${provider}`);
+  }
+  
+  const prompt = { systemPrompt, userPrompt };
+  const result = await clientFn(prompt, apiKey);
+  return result.text || '';
+}
+
 // ⚡ Fast Track: 代码补全
 app.post('/api/completion', async (req, res) => {
   try {
-    const { prefix, suffix, max_tokens = COMPLETION_CONFIG.MAX_TOKENS } = req.body;
+    const { prefix, suffix } = req.body;
     
     console.log(`⚡ [Fast] Completion request (${prefix?.length || 0} chars prefix)`);
 
-    const apiUrl = API_URLS[config.provider];
-    const model = COMPLETION_CONFIG.MODELS[config.provider];
-
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          {
-            role: 'system',
-            content: FIM_FAST_PROMPT
-          },
-          {
-            role: 'user',
-            content: `Complete the following code:\n\n${prefix}[CURSOR]${suffix}\n\nComplete at [CURSOR]. Return only the code to insert.`
-          }
-        ],
-        max_tokens,
-        temperature: COMPLETION_CONFIG.TEMPERATURE,
-        stop: COMPLETION_CONFIG.STOP_SEQUENCES
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const completion = data.choices?.[0]?.message?.content || '';
+    const completion = await callFIMAPI(config.provider, prefix, suffix, config.apiKey);
 
     res.json({ completion: completion.trim() });
   } catch (error) {
@@ -66,7 +91,7 @@ app.post('/api/completion', async (req, res) => {
 });
 
 // 健康检查端点
-app.get(API_ENDPOINTS.HEALTH, (req, res) => {
+app.get(API_ENDPOINTS.HEALTH, (_req, res) => {
   res.json({
     status: 'ok',
     message: `NES Dual Engine Server`,
@@ -111,40 +136,7 @@ app.post('/api/next-edit-prediction', async (req, res) => {
       console.log('==================================\n');
     }
 
-    const apiUrl = API_URLS[config.provider];
-    const model = NES_PREDICTION_CONFIG.MODELS[config.provider];
-
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: 'system', content: NES_SYSTEM_PROMPT },
-          { role: 'user', content: userPrompt }
-        ],
-        response_format: NES_PREDICTION_CONFIG.RESPONSE_FORMAT,
-        temperature: NES_PREDICTION_CONFIG.TEMPERATURE,
-        max_tokens: NES_PREDICTION_CONFIG.MAX_TOKENS
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
-
-    // 检查是否可能被截断
-    const finishReason = data.choices?.[0]?.finish_reason;
-    if (finishReason === 'length') {
-      console.warn('⚠️ [Slow] Response was truncated due to max_tokens limit!');
-      console.warn('   Consider increasing max_tokens in the API request');
-    }
+    const content = await callChatAPI(config.provider, NES_SYSTEM_PROMPT, userPrompt, config.apiKey);
 
     // 解析 JSON（使用容错工具）
     const parsedResult = parseAIResponse(content);
