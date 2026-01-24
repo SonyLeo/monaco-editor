@@ -226,6 +226,14 @@ export class SuggestionArbiter {
   }
 
   /**
+   * V2.0: 检查 NES 是否处于活跃状态
+   * 用于 FIM 门禁检查
+   */
+  isNesActive(): boolean {
+    return this.state.currentSuggestion?.type === 'NES';
+  }
+
+  /**
    * 清除当前建议
    */
   clearSuggestion(): void {

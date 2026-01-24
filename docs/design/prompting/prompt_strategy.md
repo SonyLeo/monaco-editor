@@ -1,113 +1,145 @@
-# Prompt Engineering 策略
+# NES Prompt Strategy & Engineering (V2.0)
 
-本文档详细描述了双系统架构下的提示词工程（Prompt Engineering）设计，特别是针对 NES 系统的思维链设计。
+本文档详细描述了 NES (Next Edit Suggestion) 系统的提示词工程（Prompt Engineering）设计。
+当前基于 **MDRP (Model-Driven Rendering Protocol)** 协议，即模型不仅输出代码，还直接输出前端渲染指令 (`changeType`)。
 
-## 1. NES Chain-of-Thought (思维链) 策略
+## 1. 核心设计哲学
 
-NES 的目标是进行复杂的意图理解。直接要求模型“生成代码”往往会导致幻觉或不符合上下文的修改。因此，我们采用两阶段推理策略。
+### 1.1 "Think like a Renderer" (像渲染器一样思考)
+传统的代码生成模型只返回 content。NES V2.0 要求模型充当 "Remote Rendering Engine"，它必须根据修改的性质（是修了一个 typo，还是重写了整行），显式地告诉前端应该如何绘制 UI。
 
-**System Prompt 文件**: `server/prompts/nesSystemPrompt.mjs`
+- **Typos/Tweaks** -> `REPLACE_WORD` (Inline Diff)
+- **Logic Fixes** -> `REPLACE_LINE` (Ghost Text / Diff View)
+- **New Features** -> `INSERT` (Ghost Text)
 
-### 1.1 结构化输出 Schema
+### 1.2 "Chain of Thought" (思维链)
+为了避免模型幻觉（修改不存在的代码）或误判意图，我们强制模型执行两阶段推理：
+1.  **Analysis Phase**: 分析意图、识别模式、评估影响。
+2.  **Prediction Phase**: 基于分析结果生成具体的代码和渲染指令。
 
-我们强制模型返回严格的 JSON 格式，包含 `analysis` 和 `predictions` 两个部分。
+## 2. System Prompt 架构
+
+**文件源**: `server/prompts/nes/systemPrompt.mjs` (引用 `NES_SYSTEM_PROMPT`)
+
+### 2.1 JSON Output Schema (Strict)
+
+模型必须返回符合以下 TypeScript 接口的 JSON：
 
 ```typescript
 interface Response {
-  // 阶段 1: 思考与分析
+  // Phase 1: Meta-Analysis
   analysis: {
-    change_type: "addParameter" | "renameFunction" | "refactorPattern" | ...;
-    summary: string; // 简述发生了什么
-    impact: string;  // 变更的影响范围
+    change_type: "addParameter" | "renameFunction" | "fixTypo" | "refactorPattern" | ...;
+    summary: string; // 人类可读的摘要，如 "Renamed 'user' to 'userInfo' in 3 places"
+    impact: string;  // 影响范围评估
     pattern: string; // 识别到的编辑模式
   };
 
-  // 阶段 2: 执行预测
+  // Phase 2: Execution Instructions
   predictions: Array<{
-    targetLine: number;
-    originalLineContent: string; // 用于锚点验证
-    suggestionText: string;
-    explanation: string;
-    priority: number;
-  }> | null;
+    // --- 锚点定位 ---
+    targetLine: number;           // 1-based line number
+    originalLineContent: string;  // 强校验字段：必须与编辑器内容完全一致，否则前端丢弃
+
+    // --- 渲染指令 (MDRP Core) ---
+    changeType: "REPLACE_LINE" | "REPLACE_WORD" | "INSERT" | "DELETE" | "INLINE_INSERT";
+
+    // --- 内容载荷 ---
+    suggestionText: string;       // 用于应用修改的文本
+    explanation: string;          // 展示给用户的简短解释
+
+    // --- 细粒度渲染参数 (Optional) ---
+    wordReplaceInfo?: {           // 当 changeType="REPLACE_WORD" 时必须存在
+      word: string;               // 被替换的词
+      replacement: string;        // 替换后的词
+      startColumn: number;        // 高亮起始列
+      endColumn: number;          // 高亮结束列
+    };
+
+    inlineInsertInfo?: {          // 当 changeType="INLINE_INSERT" 时必须存在
+      content: string;            // 插入的内容
+      insertColumn: number;       // 插入位置
+    };
+    
+    priority: number;             // 排序优先级 (1-5)
+    confidence: number;           // 置信度 (用于过滤 < 0.8 的噪音)
+  }> | null; // 如果无建议，必须返回 null
 }
 ```
 
-### 1.2 Prompt 组成部分
+### 2.2 决策树 (Decision Tree)
 
-一个完整的 NES Prompt 包含以下模块：
+模型依据此逻辑树选择 `changeType`：
 
-1.  **System Prompt**: 定义角色和输出 JSON Schema (TypeScript Interface)。
-2.  **Edit History**: 用户的最近编辑操作序列（从 `EditHistoryManager` 获取）。
-    ```xml
-    <edit_history>
-    [10:30:01] Line 5: Replaced "user" with "userInfo"
-    [10:30:05] Line 12: Replaced "user" with "userInfo"
-    </edit_history>
-    ```
-3.  **Recent Change**: 最近一次触发变更的摘要。
-4.  **Code Window**: 当前变更点附近的完整代码块（带行号）。
+1.  **DELETE**: Is the line being removed completely?
+2.  **INSERT**: Is a new line being added?
+3.  **REPLACE_LINE**: Is the *structure* of the line changing, or logic being rewritten?
+4.  **REPLACE_WORD**: Is it just a specific token update (variable name, operator, type, typo)?
+5.  **INLINE_INSERT**: Is it an addition *inside* an existing line (e.g., adding a parameter)?
 
-### 1.3 锚点验证 (Anchor Validation)
+## 3. Prompt 构建策略 (Builder Strategy)
 
-为了防止模型“指鹿为马”（修改了错误的行），我们要求模型在 `originalLineContent` 中返回它认为它正在修改的那行代码的原始内容。
+**文件源**: `server/prompts/nes/builder.mjs`
 
-**NESController 中的验证逻辑**:
+我们在运行时动态构建 User Prompt，以最大化上下文相关性并控制 Token 消耗。
 
+### 3.1 上下文组装 (Context Assembly)
+
+Prompt 包含以下动态模块：
+
+1.  **`<edit_history>`**: 
+    - 来源：`EditHistoryManager`
+    - 格式：`[Timestamp] Line N: Actions...`
+    - 作用：帮助模型识别用户的连续意图 (User Intent)。
+
+2.  **`<recent_change>`**: 
+    - 来源：`DiffEngine` summary
+    - 作用：提供最近一次操作的直接上下文。
+
+3.  **`<detected_pattern>`** (New):
+    - 来源：基于规则的简单模式匹配器
+    - 作用：Hinting。如果我们检测到用户正在重命名，显式告诉模型 "Pattern: Rename Detected"，缩小搜索空间。
+
+4.  **`<code_window>`**:
+    - 来源：当前编辑器内容
+    - 策略：**Center-Out Truncation**。保留光标附近的 ±100 行，智能丢弃无关的远端代码，但保留 Top-level Imports 和 Class Definitions。
+
+5.  **`<change_type_examples>`**:
+    - 来源：`examples.mjs`
+    - 作用：**In-Context Learning (Few-Shot)**。展示每种 `changeType` 的标准输出格式，确保模型遵循 Schema。
+
+### 3.2 动态 Few-Shot 选择
+
+为了节省 Token，我们不把所有例题都塞进去。根据 `detected_pattern` 动态加载：
+- 如果检测到重命名 -> 加载 `Rename Examples`
+- 如果检测到 Typos -> 加载 `Fix Examples`
+- 默认 -> 加载 `Generic Examples`
+
+## 4. 接口协议 (API Protocol)
+
+### 4.1 Request Payload
 ```typescript
-// src/core/engines/NESController.ts
-
-private validatePrediction(pred: Prediction): boolean {
-  const actualLine = model.getLineContent(pred.targetLine);
-  
-  // 必须完全匹配（或高相似度匹配）才能接受建议
-  if (normalize(actualLine) !== normalize(pred.originalLineContent)) {
-    console.warn("Prediction rejected due to content mismatch");
-    return false;
-  }
-  return true;
+interface NESPayload {
+  codeWindow: string;
+  windowInfo: { startLine: number; totalLines: number };
+  diffSummary: string;
+  editHistory: EditEvent[];
+  userFeedback?: Feedback[]; // 包含用户之前 Accept/Reject 的历史，用于强化学习
+  requestId: number;
 }
 ```
 
-## 2. FIM Prompt 策略
+### 4.2 Response Validation
+前端收到 JSON 后，执行严格校验：
+1.  **JSON Parse**: 失败则丢弃。
+2.  **Schema Check**: 缺少 `changeType` 或关键字段则丢弃。
+3.  **Anchor Check**: `originalLineContent` vs `Editor Line Content`。相似度 < 0.9 则丢弃（防止幻觉）。
 
-FIM (Fill-In-the-Middle) 更关注补全的流畅性和语法正确性。
+## 5. 最佳实践指南
 
-### 2.1 格式选择
-
-*   **Codestral / DeepSeek-V2**: 推荐使用 `<fim_prefix>`, `<fim_suffix>`, `<fim_middle>` 标记。
-*   **Base Models**: 有时需要使用自然语言引导。
-
-### 2.2 上下文截断 (Truncation Strategy)
-
-由于 Token 限制，我们必须明智地丢弃上下文。
-
-1.  **优先保留**: 当前函数体、Import 语句、相邻的变量定义。
-2.  **丢弃**: 远处的注释、无关的类定义。
-3.  **计算逻辑**:
-    - 计算 `PreToken` + `SufToken`。
-    - 如果超过 `MaxContextWindow` (如 8k)，则优先裁剪 `Prefix` 的头部和 `Suffix` 的尾部，保留光标中心向外的扩散区域。
-
-## 3. 示例：重命名变量的 CoT 过程
-
-**用户操作**: 将 `calculatePrice` 重命名为 `calculateTotalPrice`。
-
-**模型推理过程 (Analysis)**:
-1.  **检测**: 发现 Edit History 中有一次重命名操作。
-2.  **搜索**: 在 Code Window 中查找所有 `calculatePrice` 的引用。
-3.  **判断**: 这是一次 Refactoring 操作，而非单纯的新增功能。
-4.  **生成**: 为每一个引用点生成一个 `Prediction`。
-
-**输出 JSON**:
-```json
-{
-  "analysis": {
-    "change_type": "renameFunction",
-    "summary": "User renamed calculatePrice to calculateTotalPrice",
-    "pattern": "Rename Refactoring"
-  },
-  "predictions": [
-    { "targetLine": 45, "suggestionText": "const total = calculateTotalPrice(cart);", ... }
-  ]
-}
-```
+1.  **Explicit Rejection**: Prompt 中必须包含 *"If no edits are needed, return null"*。防止模型为了回答而编造建议。
+2.  **Column Precision**: 对于 `REPLACE_WORD`，列号必须精确。我们在 System Prompt 中提供了详细的 Column 计算规则示例。
+3.  **Latency Control**: 
+    - 输入 Token 上限：4k (约 100-200 行代码 + 历史)。
+    - 输出 Token 上限：512 (通常只需生成几行 JSON)。
+    - 预期延迟：< 1.5s。

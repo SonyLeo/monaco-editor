@@ -126,15 +126,4 @@ For **INLINE_INSERT**:
 - Example: "return Math.sqrt(this.x ** 2 + this.y ** 2);"
   - To insert " + this.z ** 2" before ")": insertColumn=46`;
 
-/**
- * Next Edit Prediction System Prompt（简化版）
- */
-export const NEXT_EDIT_SYSTEM_PROMPT = `You are an expert code editing assistant specialized in predicting the next logical edit in a codebase.
 
-Your task:
-1. Analyze the recent edit history
-2. Identify the editing pattern (rename, refactor, add field, etc.)
-3. Predict the NEXT edit location and content
-4. Provide reasoning for your prediction
-
-Output format: JSON only, no markdown code blocks.`;

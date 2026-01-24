@@ -94,12 +94,28 @@ export class NESController {
     this.editor.onDidChangeCursorPosition(() => {
       this.updateHintBarBasedOnCursorPosition();
     });
+
+    // Escape 键拦截 - 快速退出 NES
+    this.editor.addCommand(monaco.KeyCode.Escape, () => {
+      if (this.state === 'SUGGESTING') {
+        console.log('[NES V2.0] ⎋ Escape pressed, dismissing NES');
+        this.rejectAllSuggestions();
+      }
+    });
   }
 
   /**
    * 处理内容变更（智能判断是否重新预测）
    */
   private handleContentChange(e: monaco.editor.IModelContentChangedEvent): void {
+    // 任何用户输入（非建议应用）立即清空 NES UI，确保 FIM 独占
+    if (this.state === 'SUGGESTING' && this.applyingSuggestionLine === null) {
+      console.log('[NES V2.0] 🔪 Kill-Switch: User typing detected, clearing NES UI');
+      this.renderer.clear();
+      this.suggestionQueue.clear();
+      this.state = 'IDLE';
+    }
+
     // 如果正在应用建议，忽略所有编辑事件
     if (this.applyingSuggestionLine !== null) {
       return;
@@ -448,6 +464,7 @@ export class NESController {
 
   /**
    * 显示当前建议
+   * V2.0: 使用 renderSuggestion 自动根据 changeType 渲染
    */
   private showCurrentSuggestion(): void {
     if (!this.suggestionQueue.hasMore) {
@@ -476,13 +493,8 @@ export class NESController {
     });
 
     if (accepted) {
-      // 不自动跳转，只显示 Glyph Icon
-      this.renderer.renderGlyphIcon(
-        prediction.targetLine,
-        prediction.suggestionText,
-        prediction.explanation,
-        prediction.originalLineContent
-      );
+      // V2.0: 使用新的 renderSuggestion API（自动根据 changeType 渲染）
+      this.renderer.renderSuggestion(prediction);
       
       // 检查用户是否已经在建议行
       const currentLine = this.editor.getPosition()?.lineNumber || 0;
@@ -500,6 +512,7 @@ export class NESController {
       this.toast.show(message, "success", 2000);
       
       console.log(`[NESController] 📌 Showing suggestion ${progress.current}/${progress.total} at line ${prediction.targetLine}`);
+      console.log(`[NESController] 🎨 ChangeType: ${prediction.changeType || 'REPLACE_LINE'}`);
     } else {
       console.log("[NESController] Suggestion rejected by Arbiter");
       this.state = "IDLE";

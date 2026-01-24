@@ -21,6 +21,12 @@ export class FastCompletionProvider {
     this.disposable = monaco.languages.registerInlineCompletionsProvider('typescript', {
       provideInlineCompletions: async (model, position, _, token) => {
         try {
+          // V2.0: NES 门禁 - NES 活跃时禁止 FIM
+          if (this.arbiter.isNesActive()) {
+            console.log('[FastCompletion] 🚫 NES is active, suppressing FIM');
+            return { items: [] };
+          }
+
           // 检查冷却锁
           if (this.arbiter.isFimLocked()) {
             return { items: [] };
