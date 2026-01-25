@@ -583,6 +583,8 @@ export class NESController {
 
   /**
    * 显示右键菜单
+   * 用于 Glyph 图标右键点击时显示操作菜单
+   * 调用位置: NesEditor.vue:165 (右键点击 Glyph Margin)
    */
   public showContextMenu(x: number, y: number, callbacks: {
     onNavigate?: () => void;
@@ -593,7 +595,13 @@ export class NESController {
   }
 
   /**
-   * 跳转到建议位置（不应用）
+   * 跳转到建议位置（不应用建议）
+   * 用于右键菜单的 "Navigate to Suggestion" 选项
+   * 调用位置: NesEditor.vue:168 (右键菜单 onNavigate 回调)
+   * 
+   * 与 jumpToSuggestionWithSmartCursor 的区别：
+   * - jumpToSuggestion: 简单跳转到行尾（用于右键菜单）
+   * - jumpToSuggestionWithSmartCursor: 智能定位到差异点（用于 Tab 键导航）
    */
   public jumpToSuggestion(): void {
     this.renderer.jumpToSuggestion();
@@ -718,7 +726,9 @@ export class NESController {
   }
 
   /**
-   * 关闭预览
+   * 关闭预览（但保留 Glyph 图标和高亮）
+   * 用于 Esc 键处理，允许用户关闭预览但不完全退出 NES 状态
+   * 调用位置: NesEditor.vue:116 (Esc 键处理)
    */
   public closePreview(): void {
     this.renderer.hideViewZone();

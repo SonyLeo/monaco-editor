@@ -242,6 +242,13 @@ export class SuggestionArbiter {
 
   /**
    * 获取当前建议
+   * 
+   * 调用位置：
+   * - TabKeyHandler.ts:44 - Tab 键优先级判断
+   * - NesEditor.vue:152 - 检查点击的行是否有 NES 建议
+   * - 单元测试和属性测试
+   * 
+   * @returns 当前激活的建议（FIM/NES/WORD_FIX），如果没有则返回 null
    */
   getCurrentSuggestion(): Suggestion | null {
     return this.state.currentSuggestion;

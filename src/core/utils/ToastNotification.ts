@@ -79,26 +79,3 @@ export class ToastNotification {
     this.container?.remove();
   }
 }
-
-// CSS 动画（需要添加到全局样式）
-export const toastStyles = `
-@keyframes slideIn {
-  from {
-    transform: translateX(100%);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-
-@keyframes fadeOut {
-  from {
-    opacity: 1;
-  }
-  to {
-    opacity: 0;
-  }
-}
-`;

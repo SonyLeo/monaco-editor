@@ -1,6 +1,17 @@
 /**
  * Glyph Context Menu: 右键菜单
- * 提供 Navigate to / Accept / Dismiss 选项
+ * 
+ * 功能：为 NES Glyph 图标提供右键菜单操作
+ * 
+ * 集成位置：
+ * - NesEditor.vue:165 - 右键点击 Glyph Margin 时触发
+ * 
+ * 菜单选项：
+ * - Navigate to Suggestion: 跳转到建议位置（不应用）
+ * - Accept Prediction: 接受并应用建议
+ * - Dismiss: 跳过当前建议
+ * 
+ * 样式：VS Code 风格的深色主题菜单
  */
 
 import * as monaco from 'monaco-editor';

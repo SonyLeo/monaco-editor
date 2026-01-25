@@ -32,8 +32,8 @@ export class NESRenderer {
     // 初始化管理器
     this.decorationManager = new DecorationManager(editor);
     this.viewZoneManager = new ViewZoneManager(editor);
-    
     this.contextMenu = new GlyphContextMenu(editor);
+    
     injectNESStyles();
   }
 
@@ -117,8 +117,14 @@ export class NESRenderer {
     this.clear();
   }
 
+
+
   /**
-   * 跳转到建议位置
+   * 跳转到建议位置（简单跳转到行尾）
+   * 用于右键菜单的 "Navigate to Suggestion" 功能
+   * 
+   * 注意：这是一个简单的跳转实现，光标定位到行尾
+   * 如果需要智能定位到差异点，使用 NESController.jumpToSuggestionWithSmartCursor
    */
   public jumpToSuggestion(): void {
     if (!this.currentPrediction) return;
@@ -180,15 +186,19 @@ export class NESRenderer {
     return this.viewZoneManager.hasViewZone();
   }
 
-  /**
-   * 获取当前建议
-   */
-  public getCurrentSuggestion(): Prediction | null {
-    return this.currentPrediction;
-  }
+
 
   /**
+   * 清理资源
+   */
+  /**
    * 显示右键菜单
+   * 已集成：NesEditor.vue 中已绑定 Glyph 图标的右键点击事件
+   * 
+   * 菜单选项：
+   * - Navigate to Suggestion: 跳转到建议位置
+   * - Accept Prediction: 接受建议
+   * - Dismiss: 跳过当前建议
    */
   public showContextMenu(
     x: number, 
@@ -205,7 +215,7 @@ export class NESRenderer {
       actions.push({
         id: 'navigate',
         label: 'Navigate to Suggestion',
-        icon: '', // 图标在 GlyphContextMenu 内处理
+        icon: '',
         callback: callbacks.onNavigate
       });
     }
@@ -234,9 +244,6 @@ export class NESRenderer {
     this.contextMenu.show(x, y, actions);
   }
 
-  /**
-   * 清理资源
-   */
   public dispose(): void {
     this.clear();
     this.decorationManager.dispose();
@@ -394,30 +401,7 @@ export class NESRenderer {
     this.editor.revealLineInCenter(targetLine);
   }
 
-  // ==================== 旧 API（向后兼容） ====================
 
-  /**
-   * 只渲染 Glyph Icon（不渲染 ViewZone）+ HintBar
-   * @deprecated 使用 renderSuggestion() 代替
-   */
-  public renderGlyphIcon(
-    line: number, 
-    suggestion: string, 
-    explanation: string, 
-    originalLineContent?: string
-  ): void {
-    // 转换为新的 Prediction 格式
-    this.currentPrediction = {
-      targetLine: line,
-      suggestionText: suggestion,
-      explanation,
-      originalLineContent,
-      changeType: 'REPLACE_LINE' // 默认为整行替换
-    };
-
-    // 使用装饰器管理器
-    this.decorationManager.renderGlyphIcon(line, explanation);
-  }
 
   // ==================== 工具方法 ====================
 

@@ -131,33 +131,11 @@ export const HINT_TEXT = {
   GLYPH_HOVER: (explanation: string) => 
     `💡 **NES Suggestion**\n\n${explanation}\n\n*Click to preview • Tab to accept • Alt+N to skip*`,
   
-  /** 旧版 Glyph hover */
-  GLYPH_HOVER_LEGACY: (explanation: string) =>
-    `💡 **NES Suggestion**\n\n${explanation}\n\n*Press Alt+Enter to navigate*`,
-  
   /** Toast 消息 */
   TOAST: {
     PREDICTION_FAILED: 'Prediction failed',
     ALL_APPLIED: 'All suggestions applied!',
     NO_SUGGESTION: 'No active suggestion',
-  },
-};
-
-/**
- * 日志配置
- */
-export const LOG_CONFIG = {
-  /** 是否启用详细日志 */
-  VERBOSE: false,
-  
-  /** 日志前缀 */
-  PREFIX: {
-    CONTROLLER: '[NESController]',
-    RENDERER: '[NESRenderer]',
-    QUEUE: '[SuggestionQueue]',
-    HISTORY: '[EditHistoryManager]',
-    FEEDBACK: '[FeedbackCollector]',
-    SERVICE: '[PredictionService]',
   },
 };
 
@@ -173,5 +151,4 @@ export const NES_CONFIG = {
   GLYPH: GLYPH_CONFIG,
   TOAST: TOAST_CONFIG,
   HINT_TEXT,
-  LOG: LOG_CONFIG,
 } as const;

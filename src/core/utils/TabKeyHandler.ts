@@ -62,48 +62,4 @@ export class TabKeyHandler {
       return false;
     }
   }
-
-  /**
-   * 检查是否有 Inline Completion
-   * @deprecated 暂未使用，保留以备将来使用
-   */
-  /*
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  private hasInlineCompletion(): boolean {
-    try {
-      // 方法 1：检查 inlineSuggest contribution
-      const inlineSuggestController = (this.editor as any).getContribution('editor.contrib.inlineSuggest');
-      
-      if (inlineSuggestController) {
-        // 尝试多种方式检测
-        const hasCompletion = 
-          inlineSuggestController.model?.state?.inlineCompletion !== undefined ||
-          inlineSuggestController.model?.selectedSuggestionInfo !== undefined ||
-          inlineSuggestController.model?.ghostText !== undefined;
-        
-        if (hasCompletion) {
-          return true;
-        }
-      }
-
-      // 方法 2：检查是否有 ghost text decorations
-      const model = this.editor.getModel();
-      if (model) {
-        const decorations = model.getAllDecorations();
-        const hasGhostText = decorations.some(d => 
-          d.options.className?.includes('ghost') || 
-          d.options.inlineClassName?.includes('ghost')
-        );
-        
-        if (hasGhostText) {
-          return true;
-        }
-      }
-
-      return false;
-    } catch (e) {
-      return false;
-    }
-  }
-  */
 }
