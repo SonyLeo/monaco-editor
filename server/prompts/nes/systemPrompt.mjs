@@ -19,7 +19,7 @@ You must output a single valid JSON object satisfying this interface. Do not inc
 interface Response {
   // Step 1: Analyze the change (Chain of Thought)
   analysis: {
-    change_type: "addParameter" | "renameFunction" | "renameVariable" | "changeType" | "refactorPattern" | "other";
+    change_type: "addParameter" | "renameFunction" | "renameVariable" | "changeType" | "fixTypo" | "refactorPattern" | "other";
     summary: string; // e.g. "Function 'createUser' renamed to 'createUser123' across 3 edits"
     impact: string;  // e.g. "Need to update all calls to 'createUser123' with the new name"
     pattern: string; // e.g. "Sequential rename pattern detected" or "Parameter addition pattern"
@@ -63,6 +63,7 @@ interface Response {
 4. **Prioritize**: Assign priority based on importance (1=most critical, 5=least critical).
 5. **Safety**: If no edits are needed, return \`predictions: null\`.
 6. **Word Field Priority**: For REPLACE_WORD, the \`word\` field is MORE important than column numbers. Frontend uses text search to find exact position. Provide accurate \`word\` text.
+7. **Typo Detection**: If the code contains obvious typos in keywords (e.g., "functoin" → "function", "cosnt" → "const", "retrun" → "return"), classify as \`change_type: "fixTypo"\` instead of "renameFunction" or "renameVariable".
 
 ### CHANGE TYPE CLASSIFICATION RULES (CRITICAL)
 
@@ -76,7 +77,7 @@ You MUST determine the correct \`changeType\` for each prediction:
    - \`suggestionText\`: Full line content with correct indentation
 
 **2. REPLACE_WORD** - Use when only a word/operator/identifier changes
-   - Keyword typos: \`funct ion\` → \`function\`
+   - Keyword typos: \`functoin\` → \`function\`, \`cosnt\` → \`const\`, \`retrun\` → \`return\`
    - Variable renames: \`name\` → \`userName\`
    - Operator fixes: \`||\` → \`&&\`
    - Type corrections: \`string\` → \`number\`
@@ -85,10 +86,10 @@ You MUST determine the correct \`changeType\` for each prediction:
      - \`replacement\`: The correct text
      - \`startColumn\` and \`endColumn\`: Approximate position (frontend will refine)
    - \`suggestionText\`: Only the replacement word/operator
-   - Example: Line "funct ion test() {" 
-     - word="funct ion" (exact match including space)
+   - Example: Line "functoin test() {" 
+     - word="functoin" (exact match)
      - replacement="function"
-     - startColumn=1, endColumn=11
+     - startColumn=1, endColumn=9
 
 **3. INSERT** - Use when adding a new line
    - Adding new properties/methods to classes
@@ -114,11 +115,26 @@ You MUST determine the correct \`changeType\` for each prediction:
 
 ### CHANGE TYPE DECISION TREE
 
-1. Is the entire line being replaced? → **REPLACE_LINE**
-2. Is only a word/operator changing? → **REPLACE_WORD** (provide wordReplaceInfo)
-3. Is a new line being added? → **INSERT**
-4. Is a line being removed? → **DELETE**
-5. Is content being inserted into an existing line? → **INLINE_INSERT** (provide inlineInsertInfo)
+1. Is this a keyword typo (functoin, cosnt, retrun, etc.)? → **REPLACE_WORD** + \`change_type: "fixTypo"\`
+2. Is the entire line being replaced? → **REPLACE_LINE**
+3. Is only a word/operator changing? → **REPLACE_WORD**
+4. Is a new line being added? → **INSERT**
+5. Is a line being removed? → **DELETE**
+6. Is content being inserted into an existing line? → **INLINE_INSERT**
+
+### ANALYSIS CHANGE_TYPE CLASSIFICATION
+
+When setting \`analysis.change_type\`, use these guidelines:
+
+- **"fixTypo"**: Keyword typos (functoin→function, cosnt→const, retrun→return, etc.)
+- **"renameFunction"**: Function name changes (hello→greet, createUser→makeUser)
+- **"renameVariable"**: Variable name changes (name→userName, data→userData)
+- **"addParameter"**: Adding parameters to function signatures
+- **"changeType"**: Type annotation changes (string→number, any→User)
+- **"refactorPattern"**: Logic changes, algorithm improvements
+- **"other"**: Anything else
+
+**IMPORTANT**: If you see a typo in a JavaScript/TypeScript keyword, ALWAYS use \`change_type: "fixTypo"\`, NOT "renameFunction".
 
 ### COLUMN CALCULATION RULES
 

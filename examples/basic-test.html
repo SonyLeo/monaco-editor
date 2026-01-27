@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Code Assistant - Basic Test</title>
+  <link rel="stylesheet" data-name="vs/editor/editor.main" href="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/editor/editor.main.css" />
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1e1e1e;
+      color: #d4d4d4;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .header {
+      padding: 1rem;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border-bottom: 1px solid #3e3e3e;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    }
+
+    .header h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+
+    .container {
+      display: flex;
+      flex: 1;
+      gap: 1rem;
+      padding: 1rem;
+    }
+
+    .editor-section {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      border: 1px solid #3e3e3e;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .editor-title {
+      padding: 0.5rem 1rem;
+      background: #252526;
+      border-bottom: 1px solid #3e3e3e;
+      font-size: 0.9rem;
+      font-weight: 500;
+    }
+
+    #editor {
+      flex: 1;
+    }
+
+    .console-section {
+      width: 300px;
+      display: flex;
+      flex-direction: column;
+      border: 1px solid #3e3e3e;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .console-title {
+      padding: 0.5rem 1rem;
+      background: #252526;
+      border-bottom: 1px solid #3e3e3e;
+      font-size: 0.9rem;
+      font-weight: 500;
+    }
+
+    #console {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0.5rem;
+      font-family: 'Courier New', monospace;
+      font-size: 0.85rem;
+      background: #1e1e1e;
+    }
+
+    .log-entry {
+      margin-bottom: 0.25rem;
+      padding: 0.25rem 0.5rem;
+      border-radius: 2px;
+    }
+
+    .log-entry.info {
+      color: #4fc3f7;
+    }
+
+    .log-entry.success {
+      color: #81c784;
+    }
+
+    .log-entry.error {
+      color: #e57373;
+    }
+
+    .log-entry.warn {
+      color: #ffb74d;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>🤖 AI Code Assistant - Basic Test</h1>
+  </div>
+
+  <div class="container">
+    <div class="editor-section">
+      <div class="editor-title">Editor</div>
+      <div id="editor"></div>
+    </div>
+
+    <div class="console-section">
+      <div class="console-title">Console</div>
+      <div id="console"></div>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
+  <script>
+    // 配置 Monaco
+    require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' } });
+
+    // 简单的控制台输出
+    const consoleDiv = document.getElementById('console');
+    const originalLog = console.log;
+    const originalError = console.error;
+    const originalWarn = console.warn;
+
+    function addLog(message, type = 'info') {
+      const entry = document.createElement('div');
+      entry.className = `log-entry ${type}`;
+      entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+      consoleDiv.appendChild(entry);
+      consoleDiv.scrollTop = consoleDiv.scrollHeight;
+    }
+
+    console.log = function (...args) {
+      originalLog(...args);
+      addLog(args.join(' '), 'info');
+    };
+
+    console.error = function (...args) {
+      originalError(...args);
+      addLog(args.join(' '), 'error');
+    };
+
+    console.warn = function (...args) {
+      originalWarn(...args);
+      addLog(args.join(' '), 'warn');
+    };
+
+    // 加载 Monaco 和初始化
+    require(['vs/editor/editor.main'], async function () {
+      console.log('✅ Monaco Editor loaded');
+
+      // 动态导入 AI Code Assistant
+      const { initAICodeAssistant } = await import('../ai-code-assistant/index.ts');
+
+      // 创建编辑器
+      const editor = monaco.editor.create(document.getElementById('editor'), {
+        value: `// Welcome to AI Code Assistant
+// Try editing this code:
+
+function createUser(name: string) {
+  console.log("Creating user:", name);
+  return { name };
+}
+
+// Usage examples
+const user1 = createUser("Alice");
+const user2 = createUser("Bob");
+const user3 = createUser("Charlie");
+
+// Tips:
+// - Edit the function to add a new parameter
+// - Wait 1.5 seconds after editing
+// - NES will predict where else you need to update
+// - Press Alt+Enter to navigate to suggestions
+// - Press Tab to accept suggestions
+`,
+        language: 'typescript',
+        theme: 'vs-dark',
+        fontSize: 14,
+        glyphMargin: true,
+        automaticLayout: true,
+        minimap: { enabled: false },
+      });
+
+      console.log('✅ Editor created');
+
+      // 初始化 AI 助手
+      try {
+        const assistant = initAICodeAssistant(monaco, editor, {
+          fim: {
+            enabled: true,
+            endpoint: 'http://localhost:3000/api/completion',
+          },
+          nes: {
+            enabled: true,
+            endpoint: 'http://localhost:3000/api/next-edit-prediction',
+          },
+        });
+
+        console.log('✅ AI Code Assistant initialized');
+        console.log('Assistant instance:', assistant);
+      } catch (error) {
+        console.error('Failed to initialize assistant:', error);
+      }
+    });
+  </script>
+</body>
+</html>

@@ -84,6 +84,22 @@ export function formatPredictionResponse(parsedResult, requestId) {
     console.log('🤔 [AI Analysis]', JSON.stringify(parsedResult.analysis, null, 2));
   }
 
+  // 构建 symptom 对象（从 analysis 提取）
+  let symptom = null;
+  if (parsedResult.analysis) {
+    const analysis = parsedResult.analysis;
+    symptom = {
+      type: mapChangeTypeToSymptom(analysis.change_type),
+      confidence: 0.9, // 默认置信度
+      description: analysis.summary || 'Code change detected',
+      context: {
+        changeType: analysis.change_type,
+        impact: analysis.impact,
+        pattern: analysis.pattern,
+      }
+    };
+  }
+
   // 提取预测结果（支持多个 predictions）
   if (parsedResult.predictions && Array.isArray(parsedResult.predictions)) {
     // 多建议模式
@@ -103,6 +119,7 @@ export function formatPredictionResponse(parsedResult, requestId) {
     }
     
     return {
+      symptom,
       predictions,
       totalCount: predictions.length,
       hasMore: false,
@@ -125,6 +142,7 @@ export function formatPredictionResponse(parsedResult, requestId) {
     }
     
     return {
+      symptom,
       predictions: [prediction],
       totalCount: 1,
       hasMore: false,
@@ -134,9 +152,27 @@ export function formatPredictionResponse(parsedResult, requestId) {
   
   console.log('ℹ️ [Slow] AI decided no edit is needed (predictions is null)');
   return {
+    symptom,
     predictions: [],
     totalCount: 0,
     hasMore: false,
     requestId
   };
+}
+
+/**
+ * 映射 AI 的 change_type 到前端的 SymptomType
+ */
+function mapChangeTypeToSymptom(changeType) {
+  const mapping = {
+    'fixTypo': 'WORD_FIX',
+    'addParameter': 'ADD_PARAMETER',
+    'renameFunction': 'RENAME_FUNCTION',
+    'renameVariable': 'RENAME_VARIABLE',
+    'changeType': 'CHANGE_TYPE',
+    'refactorPattern': 'LOGIC_ERROR',
+    'other': 'WORD_FIX'
+  };
+  
+  return mapping[changeType] || 'WORD_FIX';
 }

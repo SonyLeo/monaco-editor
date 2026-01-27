@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:new": "vite --config vite.new.config.ts",
     "build": "vue-tsc -b && vite build",
     "preview": "vite preview",
     "server": "node server.mjs",

@@ -1,0 +1,57 @@
+/**
+ * NES Renderer Styles
+ */
+
+/* Glyph 箭头 */
+.nes-glyph-arrow {
+  background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="%23667eea" d="M8 2l6 6-6 6V2z"/></svg>') center/contain no-repeat;
+  background-color: rgba(102, 126, 234, 0.1);
+}
+
+/* 高亮行 */
+.nes-highlight-line {
+  background-color: rgba(102, 126, 234, 0.05);
+  border-left: 3px solid #667eea;
+}
+
+/* Diff 容器 */
+.nes-diff-container {
+  background: #1e1e1e;
+  border-top: 1px solid #3e3e3e;
+  border-bottom: 1px solid #3e3e3e;
+}
+
+/* HintBar */
+.nes-hint-bar {
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Diff Editor 样式 */
+.nes-diff-container .monaco-editor {
+  background: #1e1e1e;
+}
+
+.nes-diff-container .monaco-diff-editor {
+  background: #1e1e1e;
+}
+
+/* 删除行样式 */
+.nes-diff-container .line-delete {
+  background-color: rgba(255, 0, 0, 0.1);
+}
+
+/* 添加行样式 */
+.nes-diff-container .line-insert {
+  background-color: rgba(0, 255, 0, 0.1);
+}
