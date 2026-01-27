@@ -11,18 +11,17 @@ export const DEFAULT_CONFIG = {
   },
   nes: {
     enabled: true,
-    debounceMs: 500,
+    debounceMs: 3000, // NES 触发防抖时间（毫秒）
     windowSize: 30,
   },
   language: 'typescript',
   enableSemanticAnalysis: true,
 };
 
+// 其他时间配置（不可由用户配置）
 export const TIME_CONFIG = {
-  FIM_DEBOUNCE_MS: 300,
-  NES_DEBOUNCE_MS: 500,
-  LOCK_DURATION_MS: 500,
-  LAYOUT_DELAY_MS: 50,
+  LOCK_DURATION_MS: 500, // FIM 锁定持续时间
+  LAYOUT_DELAY_MS: 50,   // 布局延迟
 };
 
 export const WINDOW_CONFIG = {

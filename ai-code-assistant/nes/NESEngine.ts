@@ -194,6 +194,37 @@ export class NESEngine {
   }
 
   /**
+   * 关闭当前建议（不跳过，保持在队列中）
+   */
+  closeSuggestion(): void {
+    console.log('[NESEngine] Closing suggestion preview');
+    
+    // 只清除渲染，不移除队列
+    this.renderer.clear();
+    
+    // 如果还有建议，重新显示（不展开 Diff）
+    const prediction = this.suggestionQueue.peek();
+    if (prediction) {
+      // 只显示 Glyph 和 HintBar，不显示 Diff
+      this.renderer.showGlyph(prediction.targetLine);
+      this.renderer.showHintBar(prediction.targetLine, prediction.explanation);
+    }
+  }
+
+  /**
+   * 完全关闭 NES（清除队列并进入睡眠）
+   */
+  closeCompletely(): void {
+    console.log('[NESEngine] Closing NES completely');
+    
+    // 清除渲染
+    this.renderer.clear();
+    
+    // 清除队列并进入睡眠
+    this.sleep();
+  }
+
+  /**
    * 应用编辑
    */
   private applyEdit(prediction: Prediction): void {

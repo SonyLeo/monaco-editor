@@ -88,7 +88,8 @@ export class FIMEngine {
    */
   lock(): void {
     this.fimLocked = true;
-    console.log('[FIMEngine] Locked');
+    this.clearGhostText();
+    console.log('[FIMEngine] Locked and cleared Ghost Text');
   }
 
   /**
@@ -97,6 +98,52 @@ export class FIMEngine {
   unlock(): void {
     this.fimLocked = false;
     console.log('[FIMEngine] Unlocked');
+  }
+
+  /**
+   * 清除 Ghost Text（强制）
+   */
+  private clearGhostText(): void {
+    try {
+      // 方法 1: 触发 Escape 键事件（最可靠）
+      this.editor.trigger('keyboard', 'cancelSelection', {});
+      
+      // 方法 2: 插入空字符再删除，强制刷新
+      const position = this.editor.getPosition();
+      if (position) {
+        const model = this.editor.getModel();
+        if (model) {
+          // 插入空格
+          model.pushEditOperations(
+            [],
+            [{
+              range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column),
+              text: ' '
+            }],
+            () => null
+          );
+          
+          // 立即删除空格
+          setTimeout(() => {
+            const newPos = this.editor.getPosition();
+            if (newPos && model) {
+              model.pushEditOperations(
+                [],
+                [{
+                  range: new monaco.Range(newPos.lineNumber, newPos.column - 1, newPos.lineNumber, newPos.column),
+                  text: ''
+                }],
+                () => null
+              );
+            }
+          }, 0);
+        }
+      }
+
+      console.log('[FIMEngine] Ghost Text cleared');
+    } catch (error) {
+      console.error('[FIMEngine] Failed to clear Ghost Text:', error);
+    }
   }
 
   /**

@@ -66,12 +66,15 @@ export function initAICodeAssistant(
   // 监听编辑事件
   let debounceTimer: number | null = null;
   let nextEditIsNES = false; // 标记下一次编辑是否来自 NES
+  let nesEditProtectionUntil = 0; // NES 编辑保护期（时间戳）
 
   // 设置 NES 编辑回调
   if (nesEngine) {
     nesEngine.setOnEditApplied((lineNumber) => {
       console.log('[AICodeAssistant] NES edit will be applied at line', lineNumber);
       nextEditIsNES = true;
+      // 设置 2 秒保护期，期间不触发新的 NES 检测
+      nesEditProtectionUntil = Date.now() + 2000;
     });
   }
 
@@ -94,6 +97,18 @@ export function initAICodeAssistant(
       return;
     }
 
+    // 检查保护期
+    if (Date.now() < nesEditProtectionUntil) {
+      console.log('[AICodeAssistant] In NES edit protection period, skipping detection');
+      return;
+    }
+
+    // 如果 NES 已经激活，不触发新的检测
+    if (nesEngine.isActive()) {
+      console.log('[AICodeAssistant] NES already active, skipping detection');
+      return;
+    }
+
     // 防抖处理 NES 检测
     if (debounceTimer) {
       clearTimeout(debounceTimer);
@@ -102,9 +117,9 @@ export function initAICodeAssistant(
     debounceTimer = window.setTimeout(async () => {
       const recentEdits = editHistory.getRecentEdits(10);
       
-      // 如果 NES 已经激活，不重复唤醒
+      // 再次检查 NES 是否激活（防抖期间可能已激活）
       if (nesEngine!.isActive()) {
-        console.log('[AICodeAssistant] NES already active, skipping');
+        console.log('[AICodeAssistant] NES activated during debounce, skipping');
         return;
       }
 
@@ -127,16 +142,13 @@ export function initAICodeAssistant(
 
   console.log('[AICodeAssistant] Initialized successfully');
 
-  // 注册快捷键
+  // 注册快捷键（只注册 NES 相关的）
   if (nesEngine) {
-    // Tab 键 - 接受建议
-    editor.addCommand(monaco.KeyCode.Tab, () => {
+    // Ctrl+Enter - 接受 NES 建议（不占用 Tab 键，让 FIM 正常工作）
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
       if (nesEngine!.isActive()) {
         nesEngine!.acceptSuggestion();
-        return;
       }
-      // 否则使用默认 Tab 行为
-      editor.trigger('keyboard', 'tab', {});
     });
 
     // Alt+N - 跳过建议
@@ -146,11 +158,16 @@ export function initAICodeAssistant(
       }
     });
 
-    // Esc - 关闭预览
+    // Esc - 完全关闭 NES
     editor.addCommand(monaco.KeyCode.Escape, () => {
       if (nesEngine!.isActive()) {
-        // 清除渲染但保持 NES 激活
-        console.log('[AICodeAssistant] Escape pressed');
+        nesEngine!.closeCompletely();
+        
+        // 解锁 FIM
+        dispatcher.setNESActive(false);
+        if (fimEngine) {
+          fimEngine.unlock();
+        }
       }
     });
   }
