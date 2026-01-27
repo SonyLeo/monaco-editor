@@ -7,8 +7,11 @@
  * 时间配置 (毫秒)
  */
 export const TIME_CONFIG = {
-  /** 防抖延迟 */
-  DEBOUNCE_MS: 1500,
+  /** NES 症状检测防抖延迟 - 用户停止输入后多久检测 */
+  NES_DETECTION_DEBOUNCE_MS: 500,
+  
+  /** 防抖延迟 - 增加到 3s，避免与 FIM 竞争 */
+  DEBOUNCE_MS: 3 * 1000,
   
   /** FIM 锁定时长 */
   LOCK_DURATION_MS: 500,

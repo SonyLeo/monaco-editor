@@ -44,6 +44,19 @@ export class EditHistoryManager {
       context
     };
 
+    // ✅ P2: 如果是关键编辑，立即提交待合并编辑
+    if (this.isCriticalEdit(currentEdit)) {
+      this.flushPendingEdit();
+      this.editHistory.push(currentEdit);
+      
+      // 保留最近 N 次编辑
+      if (this.editHistory.length > this.MAX_HISTORY_SIZE) {
+        this.editHistory = this.editHistory.slice(-this.MAX_HISTORY_SIZE);
+      }
+      
+      return;
+    }
+
     // 合并逻辑：如果是连续的小编辑（如逐字符输入），合并为一个编辑
     if (this.shouldMergeEdit(currentEdit)) {
       this.mergePendingEdit(currentEdit);
@@ -74,6 +87,12 @@ export class EditHistoryManager {
    * 获取最近的编辑历史
    */
   getRecentEdits(count: number = 5): EditRecord[] {
+    // ✅ 清除合并计时器，立即提交待合并的编辑
+    if (this.editMergeTimer) {
+      clearTimeout(this.editMergeTimer);
+      this.editMergeTimer = null;
+    }
+    
     // 确保提交待合并的编辑
     this.flushPendingEdit();
     return this.editHistory.slice(-count);
@@ -97,6 +116,11 @@ export class EditHistoryManager {
   private shouldMergeEdit(currentEdit: EditRecord): boolean {
     if (!this.pendingEdit) return false;
 
+    // ✅ P2: 如果是关键编辑（函数签名、类型注解），立即提交（不合并）
+    if (this.isCriticalEdit(currentEdit)) {
+      return false;
+    }
+
     const timeDiff = currentEdit.timestamp - this.pendingEdit.timestamp;
     const isSameLine = currentEdit.lineNumber === this.pendingEdit.lineNumber;
     const isConsecutive = Math.abs(currentEdit.column - (this.pendingEdit.column + this.pendingEdit.newText.length)) <= 1;
@@ -105,6 +129,20 @@ export class EditHistoryManager {
 
     // 合并条件：同一行、连续位置、相同类型、小编辑、时间间隔 < 500ms
     return isSameLine && isConsecutive && isSameType && isSmallEdit && timeDiff < 500;
+  }
+
+  /**
+   * ✅ P2: 检测是否是关键编辑（需要立即提交）
+   */
+  private isCriticalEdit(edit: EditRecord): boolean {
+    const line = edit.context?.lineContent || '';
+    const semanticType = edit.context?.semanticType;
+
+    // 函数定义、类型注解、函数名改变
+    return /function\s+\w+\s*\(/.test(line) ||
+           /:\s*(string|number|boolean|any|void|object|Array|Promise)/.test(line) ||
+           semanticType === 'functionName' ||
+           semanticType === 'parameter';
   }
 
   /**

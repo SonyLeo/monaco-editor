@@ -27,15 +27,18 @@ import * as monaco from "monaco-editor";
 import { FastCompletionProvider } from "../core/engines/FastCompletionProvider";
 import { NESController } from "../core/engines/NESController";
 import { TabKeyHandler } from "../core/utils/TabKeyHandler";
-import { SuggestionArbiter } from "../core/arbiter/SuggestionArbiter";
+import { EditDispatcher } from "../core/dispatcher/EditDispatcher";
+import { NES_CONFIG } from "../core/config";
 
 const editorContainer = ref<HTMLElement | null>(null);
-const nesStatus = ref("Idle");
+const nesStatus = ref("Sleeping");
 const editorRef = shallowRef<monaco.editor.IStandaloneCodeEditor | null>(null);
 
 let fastProvider: FastCompletionProvider | null = null;
 let nesController: NESController | null = null;
 let tabKeyHandler: TabKeyHandler | null = null;
+let dispatcher: EditDispatcher | null = null;
+let dispatchTimer: number | null = null; // ✅ 防抖定时器
 
 onMounted(() => {
   if (!editorContainer.value) return;
@@ -79,22 +82,77 @@ const user3 = createUser("Charlie");
 
   editorRef.value = editor;
 
-  // 初始化 Arbiter 并设置编辑器实例
-  const arbiter = SuggestionArbiter.getInstance();
-  arbiter.setEditor(editor);
+  // 🆕 初始化 Dispatcher
+  dispatcher = new EditDispatcher();
+
+  // ✅ 设置 Monaco Model（启用语义分析）
+  const model = editor.getModel();
+  if (model) {
+    dispatcher.setModel(model);
+  }
 
   // 启动 Fast Engine (代码补全)
-  fastProvider = new FastCompletionProvider();
+  // ✅ P0: 传递 Dispatcher 给 FastCompletionProvider
+  fastProvider = new FastCompletionProvider(dispatcher);
   fastProvider.register();
 
   // 启动 Slow Engine (NES 预测)
   nesController = new NESController(editor);
 
-  // 将 NESController 注册到 Arbiter
-  arbiter.setNESController(nesController);
+  // 🆕 设置 Dispatcher 引用（用于 FIM 锁定）
+  nesController.setDispatcher(dispatcher);
+
+  // 🆕 设置 NES 完成回调（通知 Dispatcher）
+  nesController.setOnCompleteCallback(() => {
+    dispatcher?.onNESComplete();
+    nesStatus.value = "Sleeping";
+  });
+
+  // 🆕 监听编辑事件，通过 Dispatcher 分发（带防抖）
+  editor.onDidChangeModelContent(async () => {
+    if (!dispatcher || !nesController) return;
+
+    // ✅ 清除之前的定时器
+    if (dispatchTimer !== null) {
+      clearTimeout(dispatchTimer);
+    }
+
+    // ✅ 500ms 后再检测（用户停止输入后）
+    dispatchTimer = window.setTimeout(async () => {
+      // 获取最近的编辑历史
+      const editHistory =
+        (nesController as any).editHistoryManager?.getRecentEdits(5) || [];
+
+      // 通过 Dispatcher 分发（使用语义分析）
+      const result = await dispatcher!.dispatch(editHistory);
+
+      console.log(
+        `[NesEditor] Dispatch result: ${result.target} (${result.reason})`,
+      );
+
+      // 根据分发结果更新状态
+      if (result.target === "NES" && result.symptom) {
+        // 检测到症状，唤醒 NES
+        nesStatus.value = "Diagnosing";
+        nesController!.wakeUp(result.symptom, editHistory).then(() => {
+          if (!nesController) return;
+          const state = nesController.getLifecycleState();
+          nesStatus.value =
+            state === "SUGGESTING"
+              ? "Suggesting"
+              : state === "TREATING"
+                ? "Treating"
+                : "Sleeping";
+        });
+      } else if (result.target === "FIM") {
+        // FIM 处理（已经在 FastCompletionProvider 中处理）
+        nesStatus.value = "Sleeping";
+      }
+    }, NES_CONFIG.TIME.NES_DETECTION_DEBOUNCE_MS); // 使用配置的防抖延迟
+  });
 
   // 初始化 Tab 键处理器
-  tabKeyHandler = new TabKeyHandler(editor);
+  tabKeyHandler = new TabKeyHandler(editor, nesController);
 
   // Tab 键：使用 addCommand 覆盖默认行为
   editor.addCommand(
@@ -102,11 +160,11 @@ const user3 = createUser("Charlie");
     () => {
       const handled = tabKeyHandler?.handleTab();
       if (!handled) {
-        // 优先级 5: 默认 Tab（缩进）
+        // 优先级 4: 默认 Tab（缩进）
         editor.trigger("keyboard", "tab", {});
       }
     },
-    ""
+    "",
   );
 
   // Esc 键处理
@@ -149,11 +207,7 @@ const user3 = createUser("Charlie");
       if (!lineNumber) return;
 
       // 检查该行是否有 NES 建议
-      const currentSuggestion = arbiter.getCurrentSuggestion();
-      if (
-        currentSuggestion?.type === "NES" &&
-        currentSuggestion.targetLine === lineNumber
-      ) {
+      if (nesController?.hasActiveSuggestion()) {
         console.log(`[NesEditor] Glyph Icon clicked at line ${lineNumber}`);
 
         // 右键点击：显示菜单
@@ -192,6 +246,11 @@ const user3 = createUser("Charlie");
 });
 
 onBeforeUnmount(() => {
+  // ✅ 清理防抖定时器
+  if (dispatchTimer !== null) {
+    clearTimeout(dispatchTimer);
+  }
+  
   fastProvider?.dispose();
   nesController?.dispose();
   editorRef.value?.dispose();

@@ -62,6 +62,7 @@ interface Response {
 3. **Find ALL**: Return ALL locations that need to be updated, not just one. Maximum 5 predictions.
 4. **Prioritize**: Assign priority based on importance (1=most critical, 5=least critical).
 5. **Safety**: If no edits are needed, return \`predictions: null\`.
+6. **Word Field Priority**: For REPLACE_WORD, the \`word\` field is MORE important than column numbers. Frontend uses text search to find exact position. Provide accurate \`word\` text.
 
 ### CHANGE TYPE CLASSIFICATION RULES (CRITICAL)
 
@@ -79,9 +80,15 @@ You MUST determine the correct \`changeType\` for each prediction:
    - Variable renames: \`name\` → \`userName\`
    - Operator fixes: \`||\` → \`&&\`
    - Type corrections: \`string\` → \`number\`
-   - **MUST provide \`wordReplaceInfo\`** with exact \`startColumn\` and \`endColumn\`
+   - **MUST provide \`wordReplaceInfo\`** with:
+     - \`word\`: The EXACT text to find (CRITICAL - used for text search)
+     - \`replacement\`: The correct text
+     - \`startColumn\` and \`endColumn\`: Approximate position (frontend will refine)
    - \`suggestionText\`: Only the replacement word/operator
-   - Example: Line "funct ion test() {" → word="funct ion", replacement="function", startColumn=1, endColumn=11
+   - Example: Line "funct ion test() {" 
+     - word="funct ion" (exact match including space)
+     - replacement="function"
+     - startColumn=1, endColumn=11
 
 **3. INSERT** - Use when adding a new line
    - Adding new properties/methods to classes
@@ -115,15 +122,33 @@ You MUST determine the correct \`changeType\` for each prediction:
 
 ### COLUMN CALCULATION RULES
 
+**IMPORTANT**: Column coordinates use **character-based indexing** (not visual column positions).
+- Count each character as 1, including Tab characters (\\t)
+- Do NOT expand tabs to spaces when counting
+- Use 1-based indexing (first character is column 1)
+
 For **REPLACE_WORD**:
-- \`startColumn\`: 1-based index of first character of the word
-- \`endColumn\`: 1-based index AFTER the last character
+- \`startColumn\`: 1-based character index of first character of the word
+- \`endColumn\`: 1-based character index AFTER the last character
+- \`word\`: The exact text to search for (used for fuzzy matching on frontend)
 - Example: "  if (value !== null || value !== undefined)" 
-  - To replace "||" at position 22-24: startColumn=22, endColumn=24
+  - To replace "||": word="||", startColumn=22, endColumn=24
+  - Note: Frontend will use \`word\` to find exact position via text search
+
+**Best Practice for REPLACE_WORD**:
+- Provide the exact \`word\` text to replace (most important)
+- Column numbers are hints; frontend will search for \`word\` in the line
+- If multiple occurrences exist, frontend picks the closest to your column hint
 
 For **INLINE_INSERT**:
-- \`insertColumn\`: 1-based index where content should be inserted
+- \`insertColumn\`: 1-based character index where content should be inserted
 - Example: "return Math.sqrt(this.x ** 2 + this.y ** 2);"
-  - To insert " + this.z ** 2" before ")": insertColumn=46`;
+  - To insert " + this.z ** 2" before ")": insertColumn=46
+  - Count: 'r'=1, 'e'=2, ..., ')'=46
+
+**Character Counting Examples**:
+- "    name" (4 spaces): 'n' starts at column 5
+- "\tname" (1 tab): 'n' starts at column 2 (tab counts as 1 character)
+- "\t  name" (1 tab + 2 spaces): 'n' starts at column 4`;
 
 

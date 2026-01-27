@@ -1,18 +1,15 @@
 /**
  * Fast Engine: 简化版代码补全提供器
- * 集成 Arbiter 和后缀去重过滤
+ * 后缀去重过滤 + Dispatcher 集成
  */
 
 import * as monaco from 'monaco-editor';
-import { SuggestionArbiter } from '../arbiter/SuggestionArbiter';
+import type { EditDispatcher } from '../dispatcher/EditDispatcher';
 
 export class FastCompletionProvider {
   private disposable: monaco.IDisposable | null = null;
-  private arbiter: SuggestionArbiter;
 
-  constructor() {
-    this.arbiter = SuggestionArbiter.getInstance();
-  }
+  constructor(private dispatcher?: EditDispatcher) {}
 
   /**
    * 注册 Inline Completion Provider
@@ -21,15 +18,19 @@ export class FastCompletionProvider {
     this.disposable = monaco.languages.registerInlineCompletionsProvider('typescript', {
       provideInlineCompletions: async (model, position, _, token) => {
         try {
-          // V2.0: NES 门禁 - NES 活跃时禁止 FIM
-          if (this.arbiter.isNesActive()) {
-            console.log('[FastCompletion] 🚫 NES is active, suppressing FIM');
-            return { items: [] };
-          }
+          // ✅ P0: 检查 Dispatcher 状态
+          if (this.dispatcher) {
+            // 检查 NES 是否活跃
+            if (this.dispatcher.getNESState() !== 'SLEEPING') {
+              console.log('[FastCompletion] 🚫 NES is active, suppressing FIM');
+              return { items: [] };
+            }
 
-          // 检查冷却锁
-          if (this.arbiter.isFimLocked()) {
-            return { items: [] };
+            // 检查 FIM 是否被锁定
+            if (this.dispatcher.isFIMLocked()) {
+              console.log('[FastCompletion] 🔒 FIM is locked, suppressing');
+              return { items: [] };
+            }
           }
 
           const fullText = model.getValue();
@@ -72,16 +73,6 @@ export class FastCompletionProvider {
 
           // 后缀去重检查
           if (this.checkSuffixDuplication(completion, suffix)) {
-            return { items: [] };
-          }
-
-          // 通过 Arbiter 提交建议
-          const accepted = this.arbiter.submitFimSuggestion({
-            text: completion,
-            position: { lineNumber: position.lineNumber, column: position.column }
-          });
-
-          if (!accepted) {
             return { items: [] };
           }
 

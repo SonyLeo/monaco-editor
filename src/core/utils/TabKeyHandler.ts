@@ -4,16 +4,13 @@
  */
 
 import * as monaco from 'monaco-editor';
-import { SuggestionArbiter } from '../arbiter/SuggestionArbiter';
+import type { NESController } from '../engines/NESController';
 
 export class TabKeyHandler {
-  private arbiter: SuggestionArbiter;
-
   constructor(
-    private editor: monaco.editor.IStandaloneCodeEditor
-  ) {
-    this.arbiter = SuggestionArbiter.getInstance();
-  }
+    private editor: monaco.editor.IStandaloneCodeEditor,
+    private nesController?: NESController
+  ) {}
 
   /**
    * 处理 Tab 键按下
@@ -40,14 +37,13 @@ export class TabKeyHandler {
       return true;
     }
 
-    // 优先级 3 & 4: NES 建议（通过 Arbiter 决策）
-    const currentSuggestion = this.arbiter.getCurrentSuggestion();
-    if (currentSuggestion && currentSuggestion.type === 'NES') {
-      this.arbiter.handleTabKey();
+    // 优先级 3: NES 建议
+    if (this.nesController?.hasActiveSuggestion()) {
+      this.nesController.applySuggestion();
       return true;
     }
 
-    // 优先级 5: 默认缩进
+    // 优先级 4: 默认缩进
     return false;
   }
 
