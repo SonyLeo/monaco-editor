@@ -168,20 +168,4 @@ ai-code-assistant/
 ## 依赖
 
 - `monaco-editor` (peer dependency)
-- `fast-diff` (用于 Diff 计算)
-
-## 浏览器支持
-
-- Chrome/Edge: v90+
-- Firefox: v88+
-- Safari: v14+
-
-## 许可证
-
-MIT
-
-## 更多信息
-
-- [实现进度](../docs/IMPLEMENTATION_PROGRESS.md)
-- [设计文档](../docs/LIGHTWEIGHT_DESIGN.md)
-- [技术分析](../docs/TECHNICAL_ANALYSIS.md)
+- `fast-diff` (用于精确的 Diff 计算)

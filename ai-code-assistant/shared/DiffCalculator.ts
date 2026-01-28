@@ -1,83 +1,98 @@
 /**
  * DiffCalculator - 自动计算代码差异和坐标
  * 用于从 originalLineContent 和 suggestionText 中自动提取变更信息
+ * 使用 fast-diff 库进行精确的 diff 计算
  */
 
+import diff from 'fast-diff';
 import type { WordReplaceInfo, InlineInsertInfo } from '../types/index';
 
 export class DiffCalculator {
   /**
    * 计算 REPLACE_WORD 的信息
+   * 使用 fast-diff 进行精确的差异计算
    */
   static calculateWordReplace(original: string, suggested: string): WordReplaceInfo | null {
-    // 找到第一个不同的字符位置
-    let startIndex = 0;
-    while (startIndex < Math.min(original.length, suggested.length) && 
-           original[startIndex] === suggested[startIndex]) {
-      startIndex++;
-    }
-
+    const diffs = diff(original, suggested);
+    
     // 如果完全相同，返回 null
-    if (startIndex === original.length && startIndex === suggested.length) {
+    if (diffs.length === 1 && diffs[0][0] === diff.EQUAL) {
       return null;
     }
 
-    // 从后往前找到第一个不同的字符位置
-    let endIndexOriginal = original.length - 1;
-    let endIndexSuggested = suggested.length - 1;
-    
-    while (endIndexOriginal >= startIndex && 
-           endIndexSuggested >= startIndex &&
-           original[endIndexOriginal] === suggested[endIndexSuggested]) {
-      endIndexOriginal--;
-      endIndexSuggested--;
+    let currentIndex = 0;
+    let startColumn = -1;
+    let endColumn = -1;
+    let word = '';
+    let replacement = '';
+
+    for (const [operation, text] of diffs) {
+      if (operation === diff.EQUAL) {
+        currentIndex += text.length;
+      } else if (operation === diff.DELETE) {
+        if (startColumn === -1) {
+          startColumn = currentIndex;
+        }
+        word += text;
+        endColumn = currentIndex + text.length;
+        currentIndex += text.length;
+      } else if (operation === diff.INSERT) {
+        if (startColumn === -1) {
+          startColumn = currentIndex;
+        }
+        replacement += text;
+      }
     }
 
-    // 提取被替换的单词和替换后的单词
-    const word = original.substring(startIndex, endIndexOriginal + 1);
-    const replacement = suggested.substring(startIndex, endIndexSuggested + 1);
+    // 如果没有找到差异，返回 null
+    if (startColumn === -1 || (!word && !replacement)) {
+      return null;
+    }
 
     return {
-      word,
-      replacement,
-      startColumn: startIndex + 1, // 转换为 1-based
-      endColumn: endIndexOriginal + 2 // 转换为 1-based，指向最后一个字符之后
+      word: word || '',
+      replacement: replacement || '',
+      startColumn: startColumn + 1, // 转换为 1-based
+      endColumn: endColumn + 1 // 转换为 1-based
     };
   }
 
   /**
    * 计算 INLINE_INSERT 的信息
+   * 使用 fast-diff 检测纯插入操作
    */
   static calculateInlineInsert(original: string, suggested: string): InlineInsertInfo | null {
-    // 找到第一个不同的字符位置
-    let startIndex = 0;
-    while (startIndex < Math.min(original.length, suggested.length) && 
-           original[startIndex] === suggested[startIndex]) {
-      startIndex++;
-    }
-
-    // 从后往前找到第一个不同的字符位置
-    let endIndexOriginal = original.length - 1;
-    let endIndexSuggested = suggested.length - 1;
+    const diffs = diff(original, suggested);
     
-    while (endIndexOriginal >= startIndex && 
-           endIndexSuggested >= startIndex &&
-           original[endIndexOriginal] === suggested[endIndexSuggested]) {
-      endIndexOriginal--;
-      endIndexSuggested--;
+    // 检查是否只有插入操作（没有删除）
+    let hasDelete = false;
+    let insertContent = '';
+    let insertPosition = 0;
+    let currentIndex = 0;
+
+    for (const [operation, text] of diffs) {
+      if (operation === diff.DELETE) {
+        hasDelete = true;
+        break;
+      } else if (operation === diff.EQUAL) {
+        currentIndex += text.length;
+      } else if (operation === diff.INSERT) {
+        if (!insertContent) {
+          insertPosition = currentIndex;
+        }
+        insertContent += text;
+      }
     }
 
-    // 检查是否是纯插入（原始内容没有被删除）
-    if (endIndexOriginal < startIndex) {
-      // 纯插入
-      const content = suggested.substring(startIndex, endIndexSuggested + 1);
-      return {
-        content,
-        insertColumn: startIndex + 1 // 转换为 1-based
-      };
+    // 如果有删除操作，不是纯插入
+    if (hasDelete || !insertContent) {
+      return null;
     }
 
-    return null;
+    return {
+      content: insertContent,
+      insertColumn: insertPosition + 1 // 转换为 1-based
+    };
   }
 
   /**
