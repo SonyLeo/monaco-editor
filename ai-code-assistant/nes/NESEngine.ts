@@ -8,9 +8,11 @@ import type { EditRecord, Prediction, NESConfig, Symptom } from '../types/index'
 import { SymptomDetector } from '../shared/SymptomDetector';
 import { SuggestionQueue } from './SuggestionQueue';
 import { NESRenderer } from './NESRenderer';
+import { DiffCalculator } from '../shared/DiffCalculator';
 
 export class NESEngine {
   private state: 'SLEEPING' | 'DIAGNOSING' | 'SUGGESTING' = 'SLEEPING';
+  private previewShown: boolean = false; // 当前建议是否已展开预览
   private symptomDetector: SymptomDetector;
   private suggestionQueue: SuggestionQueue;
   private renderer: NESRenderer;
@@ -115,30 +117,112 @@ export class NESEngine {
    * 处理预测结果
    */
   private handlePredictions(predictions: Prediction[]): void {
-    console.log('[NESEngine] Received predictions:', predictions);
+    console.log('[NESEngine] Received predictions:', predictions.length, 'items');
+
+    // 获取编辑器模型
+    const model = this.editor.getModel();
+    if (!model) {
+      console.error('[NESEngine] No model available');
+      return;
+    }
+
+    // 处理每个预测，自动计算坐标
+    const processedPredictions = predictions.map(pred => {
+      // 如果没有 originalLineContent，从模型中获取
+      const originalLine = pred.originalLineContent || model.getLineContent(pred.targetLine);
+      
+      // 使用 DiffCalculator 自动计算差异
+      const diff = DiffCalculator.detectChangeType(originalLine, pred.suggestionText);
+      
+      console.log('[NESEngine] Auto-calculated diff:', {
+        line: pred.targetLine,
+        changeType: diff.changeType,
+        wordReplaceInfo: diff.wordReplaceInfo,
+        inlineInsertInfo: diff.inlineInsertInfo
+      });
+
+      // 返回增强后的预测
+      return {
+        ...pred,
+        originalLineContent: originalLine,
+        changeType: diff.changeType,
+        wordReplaceInfo: diff.wordReplaceInfo,
+        inlineInsertInfo: diff.inlineInsertInfo
+      };
+    });
 
     // 按优先级排序
-    const sorted = predictions.sort((a, b) => {
+    const sorted = processedPredictions.sort((a, b) => {
       const priorityA = a.priority || 0;
       const priorityB = b.priority || 0;
       return priorityB - priorityA;
     });
 
-    // 加入队列（逐个添加）
-    sorted.forEach(p => this.suggestionQueue.enqueue([p]));
+    // 一次性加入队列（传入整个数组）
+    this.suggestionQueue.enqueue(sorted);
+    console.log('[NESEngine] Queue size after enqueue:', this.suggestionQueue.size());
 
     this.state = 'SUGGESTING';
     this.showFirstSuggestion();
   }
 
   /**
-   * 显示第一个建议
+   * 显示第一个建议（只显示 Glyph，不展开预览）
    */
   private showFirstSuggestion(): void {
     const prediction = this.suggestionQueue.peek();
     if (prediction) {
-      console.log('[NESEngine] Showing suggestion:', prediction);
-      this.renderer.showSuggestion(prediction);
+      console.log('[NESEngine] Showing suggestion (Glyph only):', prediction);
+      
+      // 计算进度
+      const current = this.suggestionQueue.getCurrentIndex() + 1;
+      const total = this.suggestionQueue.size();
+      const progress = total > 1 ? `${current}/${total}` : undefined;
+      
+      // 只显示 Glyph 和 HintBar，不展开预览
+      this.renderer.renderSuggestion(prediction);
+      this.renderer.showHintBar(prediction.targetLine, prediction.explanation, false, progress);
+      
+      // 设置预览状态为未展开
+      this.previewShown = false;
+    }
+  }
+
+  /**
+   * 切换到预览模式（Tab 键触发）
+   */
+  public togglePreview(): void {
+    const prediction = this.suggestionQueue.peek();
+    if (!prediction) {
+      console.log('[NESEngine] No suggestion to preview');
+      return;
+    }
+
+    if (!this.previewShown) {
+      console.log('[NESEngine] Expanding preview');
+      
+      // 跳转到建议位置
+      this.editor.setPosition({
+        lineNumber: prediction.targetLine,
+        column: 1
+      });
+      this.editor.revealLineInCenter(prediction.targetLine);
+      
+      // 展开预览
+      this.renderer.showPreview(prediction);
+      
+      // 计算进度
+      const current = this.suggestionQueue.getCurrentIndex() + 1;
+      const total = this.suggestionQueue.size();
+      const progress = total > 1 ? `${current}/${total}` : undefined;
+      
+      // 更新 HintBar 提示（显示 "Tab Accept"）
+      this.renderer.showHintBar(prediction.targetLine, prediction.explanation, true, progress);
+      
+      // 更新状态
+      this.previewShown = true;
+    } else {
+      console.log('[NESEngine] Preview already shown');
     }
   }
 
@@ -153,19 +237,26 @@ export class NESEngine {
     }
 
     console.log('[NESEngine] Accepting suggestion:', prediction);
+    console.log('[NESEngine] Remaining suggestions:', this.suggestionQueue.size());
 
-    // 应用编辑
-    this.applyEdit(prediction);
+    // 使用新的 API：applySuggestion（自动根据 changeType 处理）
+    this.renderer.applySuggestion(prediction);
 
-    // 清除渲染
-    this.renderer.clear();
+    // 重置预览状态
+    this.previewShown = false;
 
     // 显示下一个建议
     if (this.suggestionQueue.peek()) {
+      console.log('[NESEngine] Showing next suggestion');
       this.showFirstSuggestion();
     } else {
       console.log('[NESEngine] All suggestions processed, going to sleep');
       this.sleep();
+    }
+
+    // 通知主入口标记为 NES 编辑
+    if (this.onEditApplied) {
+      this.onEditApplied(prediction.targetLine);
     }
   }
 
@@ -180,12 +271,17 @@ export class NESEngine {
     }
 
     console.log('[NESEngine] Skipping suggestion:', prediction);
+    console.log('[NESEngine] Remaining suggestions:', this.suggestionQueue.size());
 
     // 清除渲染
     this.renderer.clear();
 
+    // 重置预览状态
+    this.previewShown = false;
+
     // 显示下一个建议
     if (this.suggestionQueue.peek()) {
+      console.log('[NESEngine] Showing next suggestion');
       this.showFirstSuggestion();
     } else {
       console.log('[NESEngine] All suggestions processed, going to sleep');
@@ -202,12 +298,16 @@ export class NESEngine {
     // 只清除渲染，不移除队列
     this.renderer.clear();
     
-    // 如果还有建议，重新显示（不展开 Diff）
+    // 如果还有建议，重新显示（只显示 Glyph 和 HintBar）
     const prediction = this.suggestionQueue.peek();
     if (prediction) {
-      // 只显示 Glyph 和 HintBar，不显示 Diff
-      this.renderer.showGlyph(prediction.targetLine);
-      this.renderer.showHintBar(prediction.targetLine, prediction.explanation);
+      // 计算进度
+      const current = this.suggestionQueue.getCurrentIndex() + 1;
+      const total = this.suggestionQueue.size();
+      const progress = total > 1 ? `${current}/${total}` : undefined;
+      
+      this.renderer.renderSuggestion(prediction);
+      this.renderer.showHintBar(prediction.targetLine, prediction.explanation, false, progress);
     }
   }
 
@@ -225,55 +325,6 @@ export class NESEngine {
   }
 
   /**
-   * 应用编辑
-   */
-  private applyEdit(prediction: Prediction): void {
-    const model = this.editor.getModel();
-    if (!model) return;
-
-    const lineCount = model.getLineCount();
-    if (prediction.targetLine < 1 || prediction.targetLine > lineCount) {
-      console.error('[NESEngine] Invalid target line:', prediction.targetLine);
-      return;
-    }
-
-    // 替换整行
-    const lineContent = model.getLineContent(prediction.targetLine);
-    const range = new monaco.Range(
-      prediction.targetLine,
-      1,
-      prediction.targetLine,
-      lineContent.length + 1
-    );
-
-    // 应用编辑
-    model.pushEditOperations(
-      [],
-      [{ range, text: prediction.suggestionText }],
-      () => null
-    );
-
-    console.log('[NESEngine] Edit applied at line', prediction.targetLine);
-
-    // 通知主入口标记为 NES 编辑
-    if (this.onEditApplied) {
-      this.onEditApplied(prediction.targetLine);
-    }
-
-    // 移动光标到修改位置（行尾）
-    const newColumn = prediction.suggestionText.length + 1;
-    this.editor.setPosition({
-      lineNumber: prediction.targetLine,
-      column: newColumn
-    });
-
-    // 聚焦编辑器
-    this.editor.focus();
-
-    console.log('[NESEngine] Cursor moved to line', prediction.targetLine, 'column', newColumn);
-  }
-
-  /**
    * 进入睡眠状态
    */
   sleep(): void {
@@ -287,6 +338,13 @@ export class NESEngine {
    */
   isActive(): boolean {
     return this.state !== 'SLEEPING';
+  }
+
+  /**
+   * 检查预览是否已展开
+   */
+  isPreviewShown(): boolean {
+    return this.previewShown;
   }
 
   /**

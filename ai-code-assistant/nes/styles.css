@@ -1,27 +1,156 @@
 /**
  * NES Renderer Styles
+ * 支持 5 种 changeType 的样式
  */
 
-/* Glyph 箭头 */
+/* ==================== Glyph 箭头图标 ==================== */
+
+.nes-glyph-arrow-enhanced {
+  background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%23667eea"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z"/></svg>') no-repeat center center;
+  background-size: 18px 18px;
+  cursor: pointer;
+  opacity: 0.9;
+  transition: all 0.15s ease;
+}
+
+.nes-glyph-arrow-enhanced:hover {
+  opacity: 1;
+  filter: drop-shadow(0 0 4px #667eea) brightness(1.2);
+  transform: scale(1.1);
+}
+
+/* 兼容旧的 Glyph 类名 */
 .nes-glyph-arrow {
   background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="%23667eea" d="M8 2l6 6-6 6V2z"/></svg>') center/contain no-repeat;
   background-color: rgba(102, 126, 234, 0.1);
 }
 
-/* 高亮行 */
+/* ==================== 高亮样式 ==================== */
+
+/* 整行替换 - 红色背景 */
+.nes-highlight-replace-line {
+  background-color: rgba(255, 0, 0, 0.15) !important;
+}
+
+/* 单词替换 - 红色单词高亮 */
+.nes-highlight-word {
+  background-color: rgba(255, 0, 0, 0.25) !important;
+  border-radius: 3px;
+  padding: 2px 4px;
+  border: 1px solid rgba(255, 0, 0, 0.3);
+}
+
+/* 插入新行 - 蓝色背景 */
+.nes-highlight-insert {
+  background-color: rgba(0, 122, 204, 0.1) !important;
+}
+
+/* 删除行 - 深红色背景 */
+.nes-highlight-delete {
+  background-color: rgba(255, 0, 0, 0.2) !important;
+}
+
+/* 高亮行（兼容旧类名） */
 .nes-highlight-line {
   background-color: rgba(102, 126, 234, 0.05);
   border-left: 3px solid #667eea;
 }
 
-/* Diff 容器 */
+/* ==================== 预览区域样式 ==================== */
+
+/* 整行预览 - REPLACE_LINE 模式 */
+.nes-preview-zone {
+  background-color: rgba(0, 255, 0, 0.08) !important;
+  color: #858585 !important;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 14px;
+  line-height: 19px;
+  padding-left: 8px;
+  margin-left: 0;
+  font-style: italic;
+  white-space: pre;
+}
+
+/* 整行预览 - INSERT 模式 */
+.nes-preview-zone-insert {
+  background-color: rgba(0, 122, 204, 0.08) !important;
+  color: #858585 !important;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 14px;
+  line-height: 19px;
+  padding-left: 8px;
+  margin-left: 0;
+  font-style: italic;
+  white-space: pre;
+}
+
+/* 单词预览 - REPLACE_WORD 模式 */
+.nes-preview-zone-word {
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 14px;
+  line-height: 19px;
+  padding-left: 8px;
+  margin-top: 4px;
+  margin-left: 10px;
+  white-space: pre;
+}
+
+/* 箭头符号 */
+.nes-arrow-icon {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  color: #667eea;
+  margin: 0 4px;
+  font-weight: bold;
+}
+
+/* 预览单词 */
+.nes-preview-word {
+  background-color: rgba(0, 255, 0, 0.15);
+  color: #667de8;
+  font-style: italic;
+  border-radius: 3px;
+  padding: 2px 4px;
+  margin-left: 4px;
+  border: 1px solid rgba(0, 255, 0, 0.25);
+}
+
+/* 行内插入预览 */
+.nes-inline-insert-preview {
+  background-color: rgba(0, 255, 0, 0.15) !important;
+  color: #858585 !important;
+  font-style: italic !important;
+  border-radius: 3px;
+  padding: 2px 4px;
+  border: 1px solid rgba(0, 255, 0, 0.25);
+}
+
+/* Diff 容器（兼容旧类名） */
 .nes-diff-container {
   background: #1e1e1e;
   border-top: 1px solid #3e3e3e;
   border-bottom: 1px solid #3e3e3e;
 }
 
-/* HintBar */
+.nes-diff-container .monaco-editor {
+  background: #1e1e1e;
+}
+
+.nes-diff-container .monaco-diff-editor {
+  background: #1e1e1e;
+}
+
+.nes-diff-container .line-delete {
+  background-color: rgba(255, 0, 0, 0.1);
+}
+
+.nes-diff-container .line-insert {
+  background-color: rgba(0, 255, 0, 0.1);
+}
+
+/* ==================== HintBar 样式 ==================== */
+
 .nes-hint-bar {
   animation: slideIn 0.3s ease-out;
 }
@@ -35,23 +164,4 @@
     transform: translateY(0);
     opacity: 1;
   }
-}
-
-/* Diff Editor 样式 */
-.nes-diff-container .monaco-editor {
-  background: #1e1e1e;
-}
-
-.nes-diff-container .monaco-diff-editor {
-  background: #1e1e1e;
-}
-
-/* 删除行样式 */
-.nes-diff-container .line-delete {
-  background-color: rgba(255, 0, 0, 0.1);
-}
-
-/* 添加行样式 */
-.nes-diff-container .line-insert {
-  background-color: rgba(0, 255, 0, 0.1);
 }

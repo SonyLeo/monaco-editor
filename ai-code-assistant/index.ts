@@ -144,10 +144,23 @@ export function initAICodeAssistant(
 
   // 注册快捷键（只注册 NES 相关的）
   if (nesEngine) {
-    // Ctrl+Enter - 接受 NES 建议（不占用 Tab 键，让 FIM 正常工作）
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
-      if (nesEngine!.isActive()) {
-        nesEngine!.acceptSuggestion();
+    // Tab - 智能行为：
+    // - 预览未展开 → 跳转并展开预览
+    // - 预览已展开 → 接受建议
+    // - NES 未激活 → 让 Monaco 处理（FIM）
+    editor.onKeyDown((e) => {
+      if (e.keyCode === monaco.KeyCode.Tab && nesEngine!.isActive()) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        // 检查预览是否已展开
+        if (nesEngine!.isPreviewShown()) {
+          // 预览已展开 → 接受建议
+          nesEngine!.acceptSuggestion();
+        } else {
+          // 预览未展开 → 展开预览
+          nesEngine!.togglePreview();
+        }
       }
     });
 
