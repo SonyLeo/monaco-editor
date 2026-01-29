@@ -22,7 +22,6 @@ export class DiffCalculator {
 
     let currentIndex = 0;
     let startColumn = -1;
-    let endColumn = -1;
     let word = '';
     let replacement = '';
 
@@ -34,7 +33,6 @@ export class DiffCalculator {
           startColumn = currentIndex;
         }
         word += text;
-        endColumn = currentIndex + text.length;
         currentIndex += text.length;
       } else if (operation === diff.INSERT) {
         if (startColumn === -1) {
@@ -48,6 +46,8 @@ export class DiffCalculator {
     if (startColumn === -1 || (!word && !replacement)) {
       return null;
     }
+
+    const endColumn = startColumn + word.length;
 
     return {
       word: word || '',
