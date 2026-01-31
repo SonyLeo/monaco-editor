@@ -9,6 +9,7 @@ import { SymptomDetector } from '../shared/SymptomDetector';
 import { SuggestionQueue } from './SuggestionQueue';
 import { NESRenderer } from './NESRenderer';
 import { DiffCalculator } from '../shared/DiffCalculator';
+import { PositionFinder } from '../shared/PositionFinder'; // ✅ 新增
 
 export class NESEngine {
   private state: 'SLEEPING' | 'DIAGNOSING' | 'SUGGESTING' = 'SLEEPING';
@@ -126,12 +127,54 @@ export class NESEngine {
       return;
     }
 
-    // 处理每个预测，自动计算坐标
+    // 处理每个预测，优先使用上下文匹配
     const processedPredictions = predictions.map(pred => {
       // 如果没有 originalLineContent，从模型中获取
       const originalLine = pred.originalLineContent || model.getLineContent(pred.targetLine);
       
-      // 使用 DiffCalculator 自动计算差异
+      // ✅ 策略 1：优先使用上下文匹配（准确率 90%+）
+      if (pred.context) {
+        console.log('[NESEngine] Trying context matching for line', pred.targetLine);
+        
+        const position = PositionFinder.findByContext(originalLine, pred.context);
+        
+        if (position) {
+          console.log('[NESEngine] ✓ Context matching succeeded', {
+            line: pred.targetLine,
+            startColumn: position.startColumn,
+            endColumn: position.endColumn,
+            target: pred.context.target,
+          });
+          
+          // 根据 changeType 构造完整的位置信息
+          if (pred.changeType === 'REPLACE_WORD') {
+            return {
+              ...pred,
+              originalLineContent: originalLine,
+              wordReplaceInfo: {
+                word: pred.context.target,
+                replacement: '', // 将从 suggestionText 中提取
+                startColumn: position.startColumn,
+                endColumn: position.endColumn,
+              },
+            };
+          } else if (pred.changeType === 'INLINE_INSERT') {
+            return {
+              ...pred,
+              originalLineContent: originalLine,
+              inlineInsertInfo: {
+                content: '', // 将从 suggestionText 中提取
+                insertColumn: position.startColumn,
+              },
+            };
+          }
+        } else {
+          console.warn('[NESEngine] ✗ Context matching failed, will fallback to DiffCalculator');
+        }
+      }
+      
+      // ✅ 策略 2：降级到 DiffCalculator（兜底方案）
+      console.log('[NESEngine] Using DiffCalculator for line', pred.targetLine);
       const diff = DiffCalculator.detectChangeType(originalLine, pred.suggestionText);
       
       console.log('[NESEngine] Auto-calculated diff:', {

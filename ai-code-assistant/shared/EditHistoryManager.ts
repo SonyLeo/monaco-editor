@@ -1,9 +1,10 @@
 /**
- * Edit History Manager - 编辑历史管理（增强版 + 智能合并）
+ * Edit History Manager - 编辑历史管理（增强版 + 智能合并 + Tree-sitter）
  */
 
 import type * as monaco from 'monaco-editor';
 import type { EditRecord } from '../types/index';
+import { TreeSitterAnalyzer } from './TreeSitterAnalyzer';
 
 export class EditHistoryManager {
   private editHistory: EditRecord[] = [];
@@ -14,8 +15,28 @@ export class EditHistoryManager {
   private readonly MERGE_TIME_WINDOW_MS = 1.5 * 1000; // 1500ms 内的编辑可以合并
   private readonly MERGE_DISTANCE_THRESHOLD = 2; // 位置相差不超过 2 个字符
 
+  // Tree-sitter 分析器
+  private treeSitterAnalyzer: TreeSitterAnalyzer;
+  private treeSitterEnabled = false;
+
   constructor(initialSnapshot: string) {
     this.lastSnapshot = initialSnapshot;
+    this.treeSitterAnalyzer = new TreeSitterAnalyzer();
+    this.initTreeSitter();
+  }
+
+  /**
+   * 初始化 Tree-sitter（异步）
+   */
+  private async initTreeSitter(): Promise<void> {
+    try {
+      await this.treeSitterAnalyzer.init();
+      this.treeSitterEnabled = true;
+      console.log('[EditHistoryManager] Tree-sitter enabled');
+    } catch (error) {
+      console.warn('[EditHistoryManager] Tree-sitter initialization failed, using basic mode');
+      this.treeSitterEnabled = false;
+    }
   }
 
   recordEdit(
@@ -53,6 +74,11 @@ export class EditHistoryManager {
       edit.context.lineContent = model.getLineContent(change.range.startLineNumber);
     }
 
+    // ✅ 如果 Tree-sitter 可用，添加 AST 信息
+    if (this.treeSitterEnabled) {
+      this.enrichWithTreeSitter(edit, model);
+    }
+
     // ✅ 尝试合并编辑
     const merged = this.tryMergeEdit(edit);
     if (!merged) {
@@ -65,6 +91,53 @@ export class EditHistoryManager {
     }
 
     console.log('[EditHistoryManager] Recorded edit:', edit, merged ? '(merged)' : '(new)');
+  }
+
+  /**
+   * 使用 Tree-sitter 增强编辑记录
+   */
+  private enrichWithTreeSitter(edit: EditRecord, model: monaco.editor.ITextModel): void {
+    try {
+      // 获取完整代码
+      const code = model.getValue();
+
+      // 分析 AST 节点
+      const astNode = this.treeSitterAnalyzer.analyzeEdit(
+        code,
+        edit.lineNumber,
+        edit.column
+      );
+
+      if (astNode && edit.context) {
+        edit.context.astNode = astNode;
+
+        // 需要重新解析以获取完整的 Parser.SyntaxNode
+        // 这里我们直接调用 Tree-sitter 的内部方法
+        const tree = (this.treeSitterAnalyzer as any).parseWithCache?.(code) || 
+                     (this.treeSitterAnalyzer as any).parser?.parse(code);
+        
+        if (tree) {
+          const node = tree.rootNode.descendantForPosition({
+            row: edit.lineNumber - 1,
+            column: edit.column - 1,
+          });
+
+          if (node) {
+            // 推断符号信息
+            const symbolInfo = this.treeSitterAnalyzer.inferSymbolInfo(node);
+            if (symbolInfo) {
+              edit.context.symbolInfo = symbolInfo;
+            }
+
+            // 构建语法上下文
+            const syntaxContext = this.treeSitterAnalyzer.buildSyntaxContext(node);
+            edit.context.syntaxContext = syntaxContext;
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[EditHistoryManager] Tree-sitter enrichment failed:', error);
+    }
   }
 
   /**

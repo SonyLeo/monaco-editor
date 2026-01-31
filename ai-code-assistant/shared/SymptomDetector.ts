@@ -74,30 +74,117 @@ export class SymptomDetector {
   }
 
   /**
-   * 生成 diff 摘要（增强版 - 分析编辑模式）
+   * 生成 diff 摘要（增强版 - 基于 Tree-sitter 或模式分析）
    */
   private generateDiffSummary(editHistory: EditRecord[]): string {
     if (editHistory.length === 0) return 'No recent edits';
 
     const latestEdit = editHistory[editHistory.length - 1];
-    const line = latestEdit.context?.lineContent || '';
 
-    // 分析编辑模式
+    // ✅ 检查是否有 Tree-sitter AST 信息
+    const hasASTInfo = editHistory.some(e => e.context?.astNode);
+
+    if (hasASTInfo) {
+      // 使用 Tree-sitter 信息生成摘要
+      const astSummary = this.generateASTBasedSummary(editHistory);
+      if (astSummary) return astSummary;
+    }
+
+    // 回退到模式分析
     const pattern = this.analyzeEditPattern(editHistory);
     if (pattern) {
       return pattern;
     }
 
-    // 回退到简单描述
-    if (latestEdit.type === 'insert') {
-      return `Inserted "${latestEdit.newText}" at line ${latestEdit.lineNumber}`;
-    } else if (latestEdit.type === 'delete') {
-      return `Deleted "${latestEdit.oldText}" at line ${latestEdit.lineNumber}`;
-    } else if (latestEdit.type === 'replace') {
-      return `Replaced "${latestEdit.oldText}" with "${latestEdit.newText}" at line ${latestEdit.lineNumber}`;
+    // 最后回退到简单描述
+    return this.generateBasicSummary(latestEdit);
+  }
+
+  /**
+   * 基于 AST 生成摘要
+   */
+  private generateASTBasedSummary(history: EditRecord[]): string | null {
+    const latestEdit = history[history.length - 1];
+    const symbolInfo = latestEdit.context?.symbolInfo;
+    const syntaxContext = latestEdit.context?.syntaxContext;
+    const astNode = latestEdit.context?.astNode;
+
+    // 场景 1：函数相关编辑
+    if (symbolInfo?.kind === 'function' || syntaxContext?.inFunctionDeclaration) {
+      const funcName = symbolInfo?.name || syntaxContext?.nearestFunction || 'unknown';
+      
+      if (latestEdit.type === 'insert') {
+        return `Adding code to function '${funcName}'`;
+      } else if (latestEdit.type === 'delete') {
+        return `Removing code from function '${funcName}'`;
+      } else {
+        return `Modifying function '${funcName}'`;
+      }
     }
 
-    return `Modified line ${latestEdit.lineNumber}: ${line}`;
+    // 场景 2：类相关编辑
+    if (symbolInfo?.kind === 'class' || syntaxContext?.inClassDeclaration) {
+      const className = symbolInfo?.name || syntaxContext?.nearestClass || 'unknown';
+      return `Modifying class '${className}'`;
+    }
+
+    // 场景 3：参数编辑
+    if (symbolInfo?.kind === 'parameter') {
+      const paramName = symbolInfo.name;
+      const funcName = syntaxContext?.nearestFunction || 'function';
+      return `Editing parameter '${paramName}' in ${funcName}`;
+    }
+
+    // 场景 4：变量编辑
+    if (symbolInfo?.kind === 'variable') {
+      const varName = symbolInfo.name;
+      const scope = symbolInfo.scope;
+      return `Editing ${scope} variable '${varName}'`;
+    }
+
+    // 场景 5：属性编辑
+    if (symbolInfo?.kind === 'property' || syntaxContext?.inObjectLiteral) {
+      return `Editing object property`;
+    }
+
+    // 场景 6：方法编辑
+    if (symbolInfo?.kind === 'method') {
+      const methodName = symbolInfo.name;
+      const className = syntaxContext?.nearestClass || 'class';
+      return `Editing method '${methodName}' in ${className}`;
+    }
+
+    // 场景 7：条件语句编辑
+    if (syntaxContext?.inConditional) {
+      return `Editing conditional logic`;
+    }
+
+    // 场景 8：循环编辑
+    if (syntaxContext?.inLoop) {
+      return `Editing loop logic`;
+    }
+
+    // 默认：基于 AST 节点类型
+    if (astNode) {
+      return `Editing ${astNode.type} at line ${latestEdit.lineNumber}`;
+    }
+
+    return null;
+  }
+
+  /**
+   * 生成基础摘要（回退方案）
+   */
+  private generateBasicSummary(edit: EditRecord): string {
+    const line = edit.context?.lineContent || '';
+
+    if (edit.type === 'insert') {
+      return `Inserted "${edit.newText}" at line ${edit.lineNumber}`;
+    } else if (edit.type === 'delete') {
+      return `Deleted "${edit.oldText}" at line ${edit.lineNumber}`;
+    } else {
+      return `Replaced "${edit.oldText}" with "${edit.newText}" at line ${edit.lineNumber}`;
+    }
   }
 
   /**

@@ -81,6 +81,13 @@ export interface Prediction {
   requestId?: number;
   wordReplaceInfo?: WordReplaceInfo;    // 单词替换信息（仅 REPLACE_WORD 时使用）
   inlineInsertInfo?: InlineInsertInfo;  // 行内插入信息（仅 INLINE_INSERT 时使用）
+  
+  // ✅ 新增：上下文信息（用于精确位置查找）
+  context?: {
+    before: string;  // 目标前面的文本（3-10 字符）
+    target: string;  // 要修改的文本
+    after: string;   // 目标后面的文本（3-10 字符）
+  };
 }
 
 export interface EditRecord {
@@ -96,6 +103,40 @@ export interface EditRecord {
     lineContent: string;
     tokenType?: 'identifier' | 'string' | 'comment' | 'keyword' | 'other';
     semanticType?: 'functionName' | 'variableName' | 'parameter' | 'functionCall' | 'other';
+    
+    // ✅ Tree-sitter AST 节点信息（方案 B）
+    astNode?: {
+      type: string;
+      text: string;
+      startPosition: { row: number; column: number };
+      endPosition: { row: number; column: number };
+      parent?: {
+        type: string;
+        text: string;
+      };
+    };
+    
+    // ✅ 符号信息（方案 B）
+    symbolInfo?: {
+      name: string;
+      kind: 'function' | 'variable' | 'class' | 'parameter' | 'property' | 'method' | 'interface' | 'type';
+      scope: 'local' | 'global' | 'module' | 'class';
+      isExported?: boolean;
+      isAsync?: boolean;
+    };
+    
+    // ✅ 语法上下文（方案 B）
+    syntaxContext?: {
+      inFunctionDeclaration: boolean;
+      inClassDeclaration: boolean;
+      inObjectLiteral: boolean;
+      inArrayLiteral: boolean;
+      inConditional: boolean;
+      inLoop: boolean;
+      parentExpression?: string;
+      nearestFunction?: string;
+      nearestClass?: string;
+    };
   };
 }
 
