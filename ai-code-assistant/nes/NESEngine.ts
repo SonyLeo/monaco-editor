@@ -127,8 +127,41 @@ export class NESEngine {
       return;
     }
 
-    // 处理每个预测，优先使用上下文匹配
-    const processedPredictions = predictions.map(pred => {
+    // 过滤并处理每个预测
+    const processedPredictions = predictions
+      .filter(pred => {
+        // 验证行号范围
+        if (pred.targetLine < 1 || pred.targetLine > model.getLineCount()) {
+          console.warn('[NESEngine] Invalid line number:', pred.targetLine);
+          return false;
+        }
+
+        // 验证 originalLineContent 与实际行内容是否匹配
+        const actualLine = model.getLineContent(pred.targetLine);
+        if (pred.originalLineContent) {
+          const normalize = (s: string) => s.replace(/\s+/g, ' ').trim();
+          const expectedNormalized = normalize(pred.originalLineContent);
+          const actualNormalized = normalize(actualLine);
+
+          if (expectedNormalized !== actualNormalized) {
+            // 计算相似度，如果太低则跳过
+            const similarity = this.calculateSimilarity(expectedNormalized, actualNormalized);
+            if (similarity < 0.8) {
+              console.warn('[NESEngine] Content mismatch, skipping prediction:', {
+                targetLine: pred.targetLine,
+                expected: pred.originalLineContent,
+                actual: actualLine,
+                similarity: similarity.toFixed(2)
+              });
+              return false;
+            }
+            console.log('[NESEngine] Content similar enough, proceeding:', similarity.toFixed(2));
+          }
+        }
+
+        return true;
+      })
+      .map(pred => {
       // 如果没有 originalLineContent，从模型中获取
       const originalLine = pred.originalLineContent || model.getLineContent(pred.targetLine);
       
@@ -406,5 +439,41 @@ export class NESEngine {
     }
     this.renderer.dispose();
     this.sleep();
+  }
+
+  /**
+   * 计算两个字符串的相似度（Levenshtein 距离）
+   */
+  private calculateSimilarity(str1: string, str2: string): number {
+    if (str1 === str2) return 1;
+    if (str1.length === 0 || str2.length === 0) return 0;
+
+    const len1 = str1.length;
+    const len2 = str2.length;
+
+    // 创建距离矩阵
+    const matrix: number[][] = [];
+    for (let i = 0; i <= len1; i++) {
+      matrix[i] = [i];
+    }
+    for (let j = 0; j <= len2; j++) {
+      matrix[0][j] = j;
+    }
+
+    // 填充矩阵
+    for (let i = 1; i <= len1; i++) {
+      for (let j = 1; j <= len2; j++) {
+        const cost = str1[i - 1] === str2[j - 1] ? 0 : 1;
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j] + 1,      // 删除
+          matrix[i][j - 1] + 1,      // 插入
+          matrix[i - 1][j - 1] + cost // 替换
+        );
+      }
+    }
+
+    const distance = matrix[len1][len2];
+    const maxLen = Math.max(len1, len2);
+    return 1 - distance / maxLen;
   }
 }

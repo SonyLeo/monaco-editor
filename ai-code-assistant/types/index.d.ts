@@ -88,6 +88,14 @@ export interface Prediction {
     target: string;  // 要修改的文本
     after: string;   // 目标后面的文本（3-10 字符）
   };
+  
+  // ✅ 新增：AST 查询信息（用于 Tree-sitter 精确匹配）
+  query?: {
+    nodeType: string;     // AST 节点类型: "identifier", "string", "number", etc.
+    value: string;        // 节点的精确文本值
+    parentType?: string;  // 父节点类型（可选）
+    index?: number;       // 如果有多个匹配，取第几个（0-based，默认 0）
+  };
 }
 
 export interface EditRecord {

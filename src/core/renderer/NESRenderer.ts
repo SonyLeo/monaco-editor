@@ -17,6 +17,7 @@ import { GlyphContextMenu } from './GlyphContextMenu';
 import { DecorationManager } from './DecorationManager';
 import { ViewZoneManager } from './ViewZoneManager';
 import { injectNESStyles } from './styles/nes-styles';
+import { CoordinateFixer } from '../../../ai-code-assistant/shared/CoordinateFixer';
 
 export class NESRenderer {
   private currentPrediction: Prediction | null = null;
@@ -27,14 +28,33 @@ export class NESRenderer {
   // 管理器
   private decorationManager: DecorationManager;
   private viewZoneManager: ViewZoneManager;
+  private coordinateFixer: CoordinateFixer;
+  private treeSitterInitialized = false;
 
   constructor(private editor: monaco.editor.IStandaloneCodeEditor) {
     // 初始化管理器
     this.decorationManager = new DecorationManager(editor);
     this.viewZoneManager = new ViewZoneManager(editor);
     this.contextMenu = new GlyphContextMenu(editor);
+    this.coordinateFixer = new CoordinateFixer();
     
     injectNESStyles();
+    
+    // 异步初始化 Tree-sitter（Layer 2）
+    this.initTreeSitter();
+  }
+
+  /**
+   * 初始化 Tree-sitter（异步）
+   */
+  private async initTreeSitter(): Promise<void> {
+    try {
+      await this.coordinateFixer.initTreeSitter();
+      this.treeSitterInitialized = true;
+      console.log('[NESRenderer] Tree-sitter Layer 2 enabled');
+    } catch (error) {
+      console.warn('[NESRenderer] Tree-sitter init failed, Layer 2 disabled:', error);
+    }
   }
 
   // ==================== 核心 API ====================
@@ -44,15 +64,37 @@ export class NESRenderer {
    * 根据 changeType 自动渲染对应的装饰器
    */
   public renderSuggestion(prediction: Prediction): void {
-    this.currentPrediction = prediction;
+    const model = this.editor.getModel();
+    if (!model) return;
     
-    const changeType = prediction.changeType || 'REPLACE_LINE';
+    // 获取当前行内容
+    const lineContent = model.getLineContent(prediction.targetLine);
+    
+    // 设置完整代码（用于 Tree-sitter Layer 2）
+    if (this.treeSitterInitialized) {
+      this.coordinateFixer.setFullCode(model.getValue());
+    }
+    
+    // 使用 CoordinateFixer 修复坐标（3 层降级策略）
+    const fixedPrediction = this.coordinateFixer.fix(prediction, lineContent);
+    this.currentPrediction = fixedPrediction;
+    
+    const changeType = fixedPrediction.changeType || 'REPLACE_LINE';
+    
+    console.log('[NESRenderer] Rendering suggestion:', { 
+      changeType, 
+      line: fixedPrediction.targetLine,
+      hasContext: !!fixedPrediction.context,
+      wordReplaceInfo: fixedPrediction.wordReplaceInfo,
+      inlineInsertInfo: fixedPrediction.inlineInsertInfo,
+      treeSitterEnabled: this.treeSitterInitialized
+    });
     
     this.decorationManager.renderState1(
       changeType,
-      prediction.targetLine,
-      prediction.explanation,
-      prediction.wordReplaceInfo
+      fixedPrediction.targetLine,
+      fixedPrediction.explanation,
+      fixedPrediction.wordReplaceInfo
     );
   }
 

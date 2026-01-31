@@ -449,6 +449,218 @@ export class TreeSitterAnalyzer {
   }
 
   /**
+   * 查找所有匹配的节点（递归）
+   */
+  private findAllNodesByType(node: SyntaxNode, type: string): SyntaxNode[] {
+    const results: SyntaxNode[] = [];
+    
+    if (node.type === type) {
+      results.push(node);
+    }
+    
+    for (const child of node.children) {
+      results.push(...this.findAllNodesByType(child, type));
+    }
+    
+    return results;
+  }
+
+  /**
+   * 基于 AST 查找目标位置（Layer 2 核心方法）
+   * 
+   * @param code - 完整代码
+   * @param lineNumber - 目标行号（1-based）
+   * @param targetText - 要查找的文本
+   * @param nodeType - 可选的节点类型过滤
+   * @param parentType - 可选的父节点类型过滤
+   * @returns 位置信息，如果找不到返回 null
+   */
+  findTargetPosition(
+    code: string,
+    lineNumber: number,
+    targetText: string,
+    nodeType?: string,
+    parentType?: string
+  ): { startColumn: number; endColumn: number } | null {
+    if (!this.parser || !this.initialized) {
+      console.warn('[TreeSitter] Parser not initialized');
+      return null;
+    }
+
+    try {
+      const tree = this.parseWithCache(code);
+      if (!tree) return null;
+
+      // 获取目标行的所有节点
+      const targetRow = lineNumber - 1; // Tree-sitter 使用 0-based
+      const matchingNodes: SyntaxNode[] = [];
+
+      // 递归查找所有匹配的节点
+      const findMatches = (node: SyntaxNode) => {
+        // 检查节点是否在目标行
+        if (node.startPosition.row === targetRow || node.endPosition.row === targetRow) {
+          // 检查文本是否匹配
+          if (node.text === targetText) {
+            // 检查节点类型（如果指定）
+            if (!nodeType || node.type === nodeType) {
+              // 检查父节点类型（如果指定）
+              if (!parentType || (node.parent && node.parent.type === parentType)) {
+                matchingNodes.push(node);
+              }
+            }
+          }
+        }
+
+        // 递归检查子节点
+        for (const child of node.children) {
+          findMatches(child);
+        }
+      };
+
+      findMatches(tree.rootNode);
+
+      if (matchingNodes.length === 0) {
+        console.warn('[TreeSitter] No matching nodes found', {
+          lineNumber,
+          targetText,
+          nodeType,
+          parentType
+        });
+        return null;
+      }
+
+      // 如果有多个匹配，选择第一个（或可以根据其他条件选择）
+      const targetNode = matchingNodes[0];
+
+      console.log('[TreeSitter] ✅ Found target by AST', {
+        nodeType: targetNode.type,
+        text: targetNode.text,
+        startColumn: targetNode.startPosition.column + 1,
+        endColumn: targetNode.endPosition.column + 1,
+        matchCount: matchingNodes.length
+      });
+
+      return {
+        startColumn: targetNode.startPosition.column + 1, // 转换为 1-based
+        endColumn: targetNode.endPosition.column + 1
+      };
+    } catch (error) {
+      console.error('[TreeSitter] findTargetPosition error:', error);
+      return null;
+    }
+  }
+
+  /**
+   * 基于 AST 查询查找位置（更精确的方法）
+   * 
+   * @param code - 完整代码
+   * @param query - 查询条件
+   * @returns 位置信息，如果找不到返回 null
+   */
+  findByQuery(
+    code: string,
+    query: {
+      lineNumber: number;
+      nodeType?: string;
+      value?: string;
+      parentType?: string;
+      index?: number; // 如果有多个匹配，取第几个（0-based）
+    }
+  ): { startColumn: number; endColumn: number } | null {
+    if (!this.parser || !this.initialized) {
+      console.warn('[TreeSitter] Parser not initialized');
+      return null;
+    }
+
+    try {
+      const tree = this.parseWithCache(code);
+      if (!tree) return null;
+
+      const targetRow = query.lineNumber - 1;
+      const matchingNodes: SyntaxNode[] = [];
+
+      const findMatches = (node: SyntaxNode) => {
+        // 检查节点是否在目标行
+        const nodeInTargetLine = 
+          node.startPosition.row === targetRow || 
+          node.endPosition.row === targetRow ||
+          (node.startPosition.row <= targetRow && node.endPosition.row >= targetRow);
+
+        if (nodeInTargetLine) {
+          let matches = true;
+
+          // 检查节点类型
+          if (query.nodeType && node.type !== query.nodeType) {
+            matches = false;
+          }
+
+          // 检查节点值
+          if (query.value && node.text !== query.value) {
+            matches = false;
+          }
+
+          // 检查父节点类型
+          if (query.parentType && (!node.parent || node.parent.type !== query.parentType)) {
+            matches = false;
+          }
+
+          if (matches) {
+            matchingNodes.push(node);
+          }
+        }
+
+        // 递归检查子节点
+        for (const child of node.children) {
+          findMatches(child);
+        }
+      };
+
+      findMatches(tree.rootNode);
+
+      if (matchingNodes.length === 0) {
+        console.warn('[TreeSitter] No matching nodes found for query', query);
+        return null;
+      }
+
+      // 选择指定索引的节点
+      const index = query.index || 0;
+      if (index >= matchingNodes.length) {
+        console.warn('[TreeSitter] Index out of range', {
+          index,
+          matchCount: matchingNodes.length
+        });
+        return null;
+      }
+
+      const targetNode = matchingNodes[index];
+
+      console.log('[TreeSitter] ✅ Found target by query', {
+        nodeType: targetNode.type,
+        text: targetNode.text,
+        startColumn: targetNode.startPosition.column + 1,
+        endColumn: targetNode.endPosition.column + 1,
+        matchCount: matchingNodes.length,
+        selectedIndex: index
+      });
+
+      return {
+        startColumn: targetNode.startPosition.column + 1,
+        endColumn: targetNode.endPosition.column + 1
+      };
+    } catch (error) {
+      console.error('[TreeSitter] findByQuery error:', error);
+      return null;
+    }
+  }
+
+  /**
+   * 检查是否已初始化
+   */
+  isInitialized(): boolean {
+    return this.initialized;
+  }
+
+  /**
    * 获取节点的完整路径（用于调试）
    */
   getNodePath(node: SyntaxNode): string {

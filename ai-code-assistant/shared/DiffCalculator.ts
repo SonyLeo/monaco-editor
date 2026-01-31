@@ -24,9 +24,14 @@ export class DiffCalculator {
     let startColumn = -1;
     let word = '';
     let replacement = '';
+    let hasMultipleChanges = false;
 
     for (const [operation, text] of diffs) {
       if (operation === diff.EQUAL) {
+        // 如果已经有变更，遇到 EQUAL 说明有多处变更
+        if (startColumn !== -1 && (word || replacement)) {
+          hasMultipleChanges = true;
+        }
         currentIndex += text.length;
       } else if (operation === diff.DELETE) {
         if (startColumn === -1) {
@@ -44,6 +49,12 @@ export class DiffCalculator {
 
     // 如果没有找到差异，返回 null
     if (startColumn === -1 || (!word && !replacement)) {
+      return null;
+    }
+    
+    // 如果有多处变更，返回 null（应该用 REPLACE_LINE）
+    if (hasMultipleChanges) {
+      console.warn('[DiffCalculator] Multiple changes detected, should use REPLACE_LINE');
       return null;
     }
 
