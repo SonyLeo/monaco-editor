@@ -21,7 +21,7 @@ export class EditHistoryManager {
   recordEdit(
     change: monaco.editor.IModelContentChange,
     model: monaco.editor.ITextModel,
-    source: 'user' | 'nes' = 'user'
+    source: 'user' | 'nes' | 'fim' = 'user'
   ): void {
     const editType = this.detectEditType(change);
     
@@ -92,7 +92,7 @@ export class EditHistoryManager {
    * 判断两个编辑是否可以合并
    */
   private canMerge(lastEdit: EditRecord, newEdit: EditRecord): boolean {
-    // 1. 必须是用户编辑（不合并 NES 编辑）
+    // 1. 必须是用户编辑（不合并 NES 编辑和 FIM 编辑）
     if (lastEdit.source !== 'user' || newEdit.source !== 'user') {
       return false;
     }

@@ -9,6 +9,11 @@ export class FIMEngine {
   private disposable: monaco.IDisposable | null = null;
   private predictionService: PredictionService;
   private fimLocked = false;
+  
+  private ghostTextVisible = false;
+  private lastGhostTextTimestamp = 0;
+  private lastGhostTextContent = '';
+  private ghostTextDecisionCallbacks: Array<() => void> = [];
 
   constructor(
     private editor: monaco.editor.IStandaloneCodeEditor,
@@ -45,13 +50,23 @@ export class FIMEngine {
           const completion = await this.predictionService.callFIM(prefix, suffix);
 
           if (!completion || completion.trim() === '') {
+            this.ghostTextVisible = false;
+            this.lastGhostTextContent = '';
             return { items: [] };
           }
 
           // 检查后缀重复
           if (this.checkSuffixDuplication(completion, suffix)) {
+            this.ghostTextVisible = false;
+            this.lastGhostTextContent = '';
             return { items: [] };
           }
+
+          // ✅ 更新 Ghost Text 状态
+          this.ghostTextVisible = true;
+          this.lastGhostTextTimestamp = Date.now();
+          this.lastGhostTextContent = completion;
+          console.log('[FIMEngine] Ghost Text visible:', completion.substring(0, 50));
 
           return {
             items: [
@@ -143,6 +158,94 @@ export class FIMEngine {
       console.log('[FIMEngine] Ghost Text cleared');
     } catch (error) {
       console.error('[FIMEngine] Failed to clear Ghost Text:', error);
+    }
+  }
+
+  /**
+   *  检查是否有 Ghost Text 显示
+   */
+  hasGhostText(): boolean {
+    return this.ghostTextVisible;
+  }
+
+  /**
+   *  获取 Ghost Text 显示时长（毫秒）
+   */
+  getGhostTextAge(): number {
+    if (!this.ghostTextVisible) return 0;
+    return Date.now() - this.lastGhostTextTimestamp;
+  }
+
+  /**
+   *  获取当前 Ghost Text 内容
+   */
+  getGhostTextContent(): string {
+    return this.lastGhostTextContent;
+  }
+
+  /**
+   *  等待用户对 Ghost Text 做出决策
+   * @param timeoutMs 超时时间（毫秒）
+   * @returns Promise<boolean> true 表示用户做出决策，false 表示超时
+   */
+  waitForDecision(timeoutMs: number): Promise<boolean> {
+    // 如果当前没有 Ghost Text，立即返回
+    if (!this.ghostTextVisible) {
+      return Promise.resolve(true);
+    }
+
+    return new Promise((resolve) => {
+      const startTime = Date.now();
+      let resolved = false;
+
+      // 创建回调函数
+      const callback = () => {
+        if (!resolved) {
+          resolved = true;
+          resolve(true);
+        }
+      };
+
+      // 注册回调
+      this.ghostTextDecisionCallbacks.push(callback);
+
+      // 设置超时
+      const timeoutId = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          // 移除回调
+          const index = this.ghostTextDecisionCallbacks.indexOf(callback);
+          if (index > -1) {
+            this.ghostTextDecisionCallbacks.splice(index, 1);
+          }
+          resolve(false); // 超时
+        }
+      }, timeoutMs);
+
+      // 清理函数
+      const cleanup = () => {
+        clearTimeout(timeoutId);
+        const index = this.ghostTextDecisionCallbacks.indexOf(callback);
+        if (index > -1) {
+          this.ghostTextDecisionCallbacks.splice(index, 1);
+        }
+      };
+    });
+  }
+
+  /**
+   *  标记 Ghost Text 已消失（由外部调用）
+   */
+  markGhostTextGone(): void {
+    if (this.ghostTextVisible) {
+      console.log('[FIMEngine] Ghost Text gone (user decision made)');
+      this.ghostTextVisible = false;
+      this.lastGhostTextContent = '';
+      
+      // 触发所有等待回调
+      const callbacks = [...this.ghostTextDecisionCallbacks];
+      this.ghostTextDecisionCallbacks = [];
+      callbacks.forEach(cb => cb());
     }
   }
 

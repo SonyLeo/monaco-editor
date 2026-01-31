@@ -66,6 +66,7 @@ export function initAICodeAssistant(
   // 监听编辑事件
   let debounceTimer: number | null = null;
   let nextEditIsNES = false; // 标记下一次编辑是否来自 NES
+  let nextEditIsFIM = false; //  标记下一次编辑是否来自 FIM
   let nesEditProtectionUntil = 0; // NES 编辑保护期（时间戳）
 
   // 设置 NES 编辑回调
@@ -79,13 +80,28 @@ export function initAICodeAssistant(
   }
 
   model.onDidChangeContent((event) => {
+    //  检测 FIM 接受（大块插入）
+    if (fimEngine && fimEngine.hasGhostText()) {
+      event.changes.forEach((change) => {
+        // 如果是大块插入（> 10 个字符），且 Ghost Text 可见
+        if (change.text.length > 10 && change.rangeLength === 0) {
+          console.log('[AICodeAssistant] Detected FIM accept');
+          nextEditIsFIM = true;
+          fimEngine.markGhostTextGone(); // 标记 Ghost Text 已消失
+        }
+      });
+    }
+
     // 记录编辑历史（标记来源）
-    const source = nextEditIsNES ? 'nes' : 'user';
+    const source = nextEditIsFIM ? 'fim' : (nextEditIsNES ? 'nes' : 'user');
     event.changes.forEach((change) => {
       editHistory.recordEdit(change, model, source);
     });
 
     // 重置标记
+    if (nextEditIsFIM) {
+      nextEditIsFIM = false;
+    }
     if (nextEditIsNES) {
       nextEditIsNES = false;
       console.log('[AICodeAssistant] NES edit recorded, skipping detection');
@@ -115,6 +131,18 @@ export function initAICodeAssistant(
     }
 
     debounceTimer = window.setTimeout(async () => {
+      //  检查 FIM 状态，等待用户决策
+      if (fimEngine && fimEngine.hasGhostText()) {
+        console.log('[AICodeAssistant] FIM Ghost Text visible, waiting for user decision...');
+        const fimDecided = await fimEngine.waitForDecision(5000); // 等待最多 5 秒
+        
+        if (fimDecided) {
+          console.log('[AICodeAssistant] FIM decided, proceeding with NES');
+        } else {
+          console.log('[AICodeAssistant] FIM decision timeout, proceeding with NES');
+        }
+      }
+
       const recentEdits = editHistory.getRecentEdits(10);
       
       // 再次检查 NES 是否激活（防抖期间可能已激活）
@@ -142,24 +170,51 @@ export function initAICodeAssistant(
 
   console.log('[AICodeAssistant] Initialized successfully');
 
-  // 注册快捷键（只注册 NES 相关的）
+  //  监听编辑器事件，检测 Ghost Text 消失
+  if (fimEngine) {
+    // 监听光标移动（Ghost Text 可能因光标移动而消失）
+    editor.onDidChangeCursorPosition(() => {
+      if (fimEngine.hasGhostText()) {
+        // 延迟检查，避免误判
+        setTimeout(() => {
+          // 简单假设：光标移动后，如果没有新的 Ghost Text，则已消失
+          // （更精确的方式需要 Monaco API 支持）
+          if (fimEngine.getGhostTextAge() > 200) {
+            fimEngine.markGhostTextGone();
+          }
+        }, 100);
+      }
+    });
+  }
+
+  //  Tab 键智能路由
   if (nesEngine) {
     // Tab - 智能行为：
-    // - 预览未展开 → 跳转并展开预览
-    // - 预览已展开 → 接受建议
-    // - NES 未激活 → 让 Monaco 处理（FIM）
+    // 优先级 1：FIM Ghost Text（默认行为，不拦截）
+    // 优先级 2：NES 建议（拦截并处理）
+    // 优先级 3：默认缩进（不拦截）
     editor.onKeyDown((e) => {
-      if (e.keyCode === monaco.KeyCode.Tab && nesEngine!.isActive()) {
-        e.preventDefault();
-        e.stopPropagation();
-        
-        // 检查预览是否已展开
-        if (nesEngine!.isPreviewShown()) {
-          // 预览已展开 → 接受建议
-          nesEngine!.acceptSuggestion();
-        } else {
-          // 预览未展开 → 展开预览
-          nesEngine!.togglePreview();
+      if (e.keyCode === monaco.KeyCode.Tab) {
+        // ✅ 优先级 1：FIM Ghost Text 优先
+        if (fimEngine && fimEngine.hasGhostText()) {
+          console.log('[AICodeAssistant] Tab → FIM (Ghost Text visible)');
+          // 不阻止默认行为，让 Monaco 处理 FIM 接受
+          return;
+        }
+
+        // ✅ 优先级 2：NES 建议
+        if (nesEngine.isActive()) {
+          e.preventDefault();
+          e.stopPropagation();
+          
+          // 检查预览是否已展开
+          if (nesEngine!.isPreviewShown()) {
+            // 预览已展开 → 接受建议
+            nesEngine!.acceptSuggestion();
+          } else {
+            // 预览未展开 → 展开预览
+            nesEngine!.togglePreview();
+          }
         }
       }
     });

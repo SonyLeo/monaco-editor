@@ -91,7 +91,7 @@ export interface EditRecord {
   oldText: string;
   newText: string;
   rangeLength: number;
-  source?: 'user' | 'nes'; // 编辑来源
+  source?: 'user' | 'nes' | 'fim';
   context?: {
     lineContent: string;
     tokenType?: 'identifier' | 'string' | 'comment' | 'keyword' | 'other';
