@@ -33,7 +33,7 @@ export class SymptomDetector {
       return null;
     }
 
-    const latestEdit = userEdits[userEdits.length - 1];
+    const latestEdit = userEdits[userEdits.length - 1]!;
     const targetLine = affectedLine || latestEdit.lineNumber;
 
     // 获取代码窗口（目标行前后各 15 行）
@@ -79,7 +79,7 @@ export class SymptomDetector {
   private generateDiffSummary(editHistory: EditRecord[]): string {
     if (editHistory.length === 0) return 'No recent edits';
 
-    const latestEdit = editHistory[editHistory.length - 1];
+    const latestEdit = editHistory[editHistory.length - 1]!;
 
     // ✅ 检查是否有 Tree-sitter AST 信息
     const hasASTInfo = editHistory.some(e => e.context?.astNode);
@@ -104,7 +104,7 @@ export class SymptomDetector {
    * 基于 AST 生成摘要
    */
   private generateASTBasedSummary(history: EditRecord[]): string | null {
-    const latestEdit = history[history.length - 1];
+    const latestEdit = history[history.length - 1]!;
     const symbolInfo = latestEdit.context?.symbolInfo;
     const syntaxContext = latestEdit.context?.syntaxContext;
     const astNode = latestEdit.context?.astNode;
@@ -176,7 +176,7 @@ export class SymptomDetector {
    * 生成基础摘要（回退方案）
    */
   private generateBasicSummary(edit: EditRecord): string {
-    const line = edit.context?.lineContent || '';
+
 
     if (edit.type === 'insert') {
       return `Inserted "${edit.newText}" at line ${edit.lineNumber}`;
@@ -193,7 +193,7 @@ export class SymptomDetector {
   private analyzeEditPattern(editHistory: EditRecord[]): string | null {
     if (editHistory.length < 2) return null;
 
-    const latestEdit = editHistory[editHistory.length - 1];
+    const latestEdit = editHistory[editHistory.length - 1]!;
     const line = latestEdit.context?.lineContent || '';
 
     // 检测函数参数添加
@@ -203,8 +203,8 @@ export class SymptomDetector {
       if (hasParentheses) {
         // 提取括号内的内容
         const match = line.match(/\(([^)]*)\)/);
-        if (match) {
-          const params = match[1].trim();
+          if (match && match[1]) {
+            const params = match[1].trim();
           
           // 检查最近的编辑是否都在同一行
           const sameLine = editHistory.every(e => e.lineNumber === latestEdit.lineNumber);

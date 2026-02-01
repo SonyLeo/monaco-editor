@@ -4,6 +4,7 @@
 
 import * as monaco from 'monaco-editor';
 import { PredictionService } from '../shared/PredictionService';
+import { logger } from '../shared/logger';
 
 export class FIMEngine {
   private disposable: monaco.IDisposable | null = null;
@@ -23,14 +24,12 @@ export class FIMEngine {
   }
 
   register(): void {
-    console.log('[FIMEngine] Registering inline completion provider');
 
     this.disposable = monaco.languages.registerInlineCompletionsProvider('typescript', {
-      provideInlineCompletions: async (model, position, context, token) => {
+      provideInlineCompletions: async (model, position, _context, token) => {
         try {
           // 检查是否被锁定
           if (this.fimLocked) {
-            console.log('[FIMEngine] FIM is locked, suppressing');
             return { items: [] };
           }
 
@@ -66,7 +65,6 @@ export class FIMEngine {
           this.ghostTextVisible = true;
           this.lastGhostTextTimestamp = Date.now();
           this.lastGhostTextContent = completion;
-          console.log('[FIMEngine] Ghost Text visible:', completion.substring(0, 50));
 
           return {
             items: [
@@ -85,7 +83,7 @@ export class FIMEngine {
           if (error.name === 'AbortError') {
             return { items: [] };
           }
-          console.error('[FIMEngine] Error:', error);
+          logger.error('[FIMEngine] Error:', error);
           return { items: [] };
         }
       },
@@ -95,7 +93,6 @@ export class FIMEngine {
       },
     });
 
-    console.log('[FIMEngine] ✅ Provider registered');
   }
 
   /**
@@ -104,7 +101,6 @@ export class FIMEngine {
   lock(): void {
     this.fimLocked = true;
     this.clearGhostText();
-    console.log('[FIMEngine] Locked and cleared Ghost Text');
   }
 
   /**
@@ -112,7 +108,6 @@ export class FIMEngine {
    */
   unlock(): void {
     this.fimLocked = false;
-    console.log('[FIMEngine] Unlocked');
   }
 
   /**
@@ -155,9 +150,8 @@ export class FIMEngine {
         }
       }
 
-      console.log('[FIMEngine] Ghost Text cleared');
     } catch (error) {
-      console.error('[FIMEngine] Failed to clear Ghost Text:', error);
+      logger.error('[FIMEngine] Failed to clear Ghost Text:', error);
     }
   }
 
@@ -195,13 +189,24 @@ export class FIMEngine {
     }
 
     return new Promise((resolve) => {
-      const startTime = Date.now();
+
       let resolved = false;
+      let timeoutId: any = null;
+
+      // 清理函数
+      const cleanup = () => {
+        if (timeoutId) clearTimeout(timeoutId);
+        const index = this.ghostTextDecisionCallbacks.indexOf(callback);
+        if (index > -1) {
+          this.ghostTextDecisionCallbacks.splice(index, 1);
+        }
+      };
 
       // 创建回调函数
       const callback = () => {
         if (!resolved) {
           resolved = true;
+          cleanup();
           resolve(true);
         }
       };
@@ -210,26 +215,13 @@ export class FIMEngine {
       this.ghostTextDecisionCallbacks.push(callback);
 
       // 设置超时
-      const timeoutId = setTimeout(() => {
+      timeoutId = setTimeout(() => {
         if (!resolved) {
           resolved = true;
-          // 移除回调
-          const index = this.ghostTextDecisionCallbacks.indexOf(callback);
-          if (index > -1) {
-            this.ghostTextDecisionCallbacks.splice(index, 1);
-          }
+          cleanup();
           resolve(false); // 超时
         }
       }, timeoutMs);
-
-      // 清理函数
-      const cleanup = () => {
-        clearTimeout(timeoutId);
-        const index = this.ghostTextDecisionCallbacks.indexOf(callback);
-        if (index > -1) {
-          this.ghostTextDecisionCallbacks.splice(index, 1);
-        }
-      };
     });
   }
 
@@ -238,7 +230,6 @@ export class FIMEngine {
    */
   markGhostTextGone(): void {
     if (this.ghostTextVisible) {
-      console.log('[FIMEngine] Ghost Text gone (user decision made)');
       this.ghostTextVisible = false;
       this.lastGhostTextContent = '';
       
@@ -265,6 +256,5 @@ export class FIMEngine {
 
   dispose(): void {
     this.disposable?.dispose();
-    console.log('[FIMEngine] Disposed');
   }
 }

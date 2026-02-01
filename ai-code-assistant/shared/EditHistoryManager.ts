@@ -5,6 +5,7 @@
 import type * as monaco from 'monaco-editor';
 import type { EditRecord } from '../types/index';
 import { TreeSitterAnalyzer } from './TreeSitterAnalyzer';
+import { logger } from './logger';
 
 export class EditHistoryManager {
   private editHistory: EditRecord[] = [];
@@ -32,9 +33,8 @@ export class EditHistoryManager {
     try {
       await this.treeSitterAnalyzer.init();
       this.treeSitterEnabled = true;
-      console.log('[EditHistoryManager] Tree-sitter enabled');
     } catch (error) {
-      console.warn('[EditHistoryManager] Tree-sitter initialization failed, using basic mode');
+      logger.warn('[EditHistoryManager] Tree-sitter initialization failed, using basic mode');
       this.treeSitterEnabled = false;
     }
   }
@@ -134,7 +134,7 @@ export class EditHistoryManager {
         }
       }
     } catch (error) {
-      console.error('[EditHistoryManager] Tree-sitter enrichment failed:', error);
+      logger.error('[EditHistoryManager] Tree-sitter enrichment failed:', error);
     }
   }
 
@@ -147,7 +147,7 @@ export class EditHistoryManager {
       return false;
     }
 
-    const lastEdit = this.editHistory[this.editHistory.length - 1];
+    const lastEdit = this.editHistory[this.editHistory.length - 1]!;
     
     // 检查是否可以合并
     if (!this.canMerge(lastEdit, newEdit)) {
@@ -258,7 +258,6 @@ export class EditHistoryManager {
       lastEdit.newText = newEdit.newText;
     }
 
-    console.log('[EditHistoryManager] Merged edit:', lastEdit);
   }
 
   /**
@@ -290,7 +289,7 @@ export class EditHistoryManager {
       }
       return result.join('\n');
     } catch (error) {
-      console.error('[EditHistoryManager] Failed to extract old text:', error);
+      logger.error('[EditHistoryManager] Failed to extract old text:', error);
       return '';
     }
   }

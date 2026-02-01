@@ -9,7 +9,8 @@ import { SymptomDetector } from '../shared/SymptomDetector';
 import { SuggestionQueue } from './SuggestionQueue';
 import { NESRenderer } from './NESRenderer';
 import { DiffCalculator } from '../shared/DiffCalculator';
-import { PositionFinder } from '../shared/PositionFinder'; // ✅ 新增
+import { PositionFinder } from '../shared/PositionFinder';
+import { logger } from '../shared/logger';
 
 export class NESEngine {
   private state: 'SLEEPING' | 'DIAGNOSING' | 'SUGGESTING' = 'SLEEPING';
@@ -46,19 +47,16 @@ export class NESEngine {
    */
   async wakeUp(editHistory: EditRecord[]): Promise<void> {
     if (this.state !== 'SLEEPING') {
-      console.log('[NESEngine] Already active, skipping');
       return;
     }
 
     // 准备 payload
     const payload = this.symptomDetector.preparePayload(editHistory);
     if (!payload) {
-      console.log('[NESEngine] No payload to send');
       return;
     }
 
     this.state = 'DIAGNOSING';
-    console.log('[NESEngine] Waking up, calling API...', payload);
 
     try {
       // 取消之前的请求
@@ -80,7 +78,6 @@ export class NESEngine {
       }
 
       const data = await response.json();
-      console.log('[NESEngine] API response:', data);
 
       // 处理症状信息
       if (data.symptom) {
@@ -90,17 +87,14 @@ export class NESEngine {
       // 处理预测结果
       // 后端返回: { symptom?, predictions: [...], totalCount, hasMore, requestId }
       if (data.predictions && data.predictions.length > 0) {
-        console.log(`[NESEngine] Received ${data.totalCount || data.predictions.length} predictions`);
         this.handlePredictions(data.predictions);
       } else {
-        console.log('[NESEngine] No predictions, going back to sleep');
         this.sleep();
       }
     } catch (error: any) {
       if (error.name === 'AbortError') {
-        console.log('[NESEngine] Request aborted');
       } else {
-        console.error('[NESEngine] API call failed:', error);
+        logger.error('[NESEngine] API call failed:', error);
       }
       this.sleep();
     }
@@ -109,8 +103,7 @@ export class NESEngine {
   /**
    * 处理症状
    */
-  private handleSymptom(symptom: Symptom): void {
-    console.log('[NESEngine] Symptom detected:', symptom);
+  private handleSymptom(_symptom: Symptom): void {
     // 可以触发事件通知外部
   }
 
@@ -118,12 +111,11 @@ export class NESEngine {
    * 处理预测结果
    */
   private handlePredictions(predictions: Prediction[]): void {
-    console.log('[NESEngine] Received predictions:', predictions.length, 'items');
 
     // 获取编辑器模型
     const model = this.editor.getModel();
     if (!model) {
-      console.error('[NESEngine] No model available');
+      logger.error('[NESEngine] No model available');
       return;
     }
 
@@ -132,7 +124,7 @@ export class NESEngine {
       .filter(pred => {
         // 验证行号范围
         if (pred.targetLine < 1 || pred.targetLine > model.getLineCount()) {
-          console.warn('[NESEngine] Invalid line number:', pred.targetLine);
+          logger.warn('[NESEngine] Invalid line number:', pred.targetLine);
           return false;
         }
 
@@ -147,7 +139,7 @@ export class NESEngine {
             // 计算相似度，如果太低则跳过
             const similarity = this.calculateSimilarity(expectedNormalized, actualNormalized);
             if (similarity < 0.8) {
-              console.warn('[NESEngine] Content mismatch, skipping prediction:', {
+              logger.warn('[NESEngine] Content mismatch, skipping prediction:', {
                 targetLine: pred.targetLine,
                 expected: pred.originalLineContent,
                 actual: actualLine,
@@ -155,7 +147,6 @@ export class NESEngine {
               });
               return false;
             }
-            console.log('[NESEngine] Content similar enough, proceeding:', similarity.toFixed(2));
           }
         }
 
@@ -204,7 +195,7 @@ export class NESEngine {
             };
           }
         } else {
-          console.warn('[NESEngine] ✗ Context matching failed, using DiffCalculator result');
+          logger.warn('[NESEngine] ✗ Context matching failed, using DiffCalculator result');
         }
       }
 
@@ -227,7 +218,6 @@ export class NESEngine {
 
     // 一次性加入队列（传入整个数组）
     this.suggestionQueue.enqueue(sorted);
-    console.log('[NESEngine] Queue size after enqueue:', this.suggestionQueue.size());
 
     this.state = 'SUGGESTING';
     this.showFirstSuggestion();
@@ -239,7 +229,6 @@ export class NESEngine {
   private showFirstSuggestion(): void {
     const prediction = this.suggestionQueue.peek();
     if (prediction) {
-      console.log('[NESEngine] Showing suggestion (Glyph only):', prediction);
       
       // 计算进度
       const current = this.suggestionQueue.getCurrentIndex() + 1;
@@ -261,12 +250,10 @@ export class NESEngine {
   public togglePreview(): void {
     const prediction = this.suggestionQueue.peek();
     if (!prediction) {
-      console.log('[NESEngine] No suggestion to preview');
       return;
     }
 
     if (!this.previewShown) {
-      console.log('[NESEngine] Expanding preview');
       
       // 跳转到建议位置
       this.editor.setPosition({
@@ -289,7 +276,6 @@ export class NESEngine {
       // 更新状态
       this.previewShown = true;
     } else {
-      console.log('[NESEngine] Preview already shown');
     }
   }
 
@@ -299,7 +285,6 @@ export class NESEngine {
   acceptSuggestion(): void {
     const prediction = this.suggestionQueue.dequeue();
     if (!prediction) {
-      console.log('[NESEngine] No suggestion to accept');
       return;
     }
 
@@ -311,10 +296,8 @@ export class NESEngine {
 
     // 显示下一个建议
     if (this.suggestionQueue.peek()) {
-      console.log('[NESEngine] Showing next suggestion');
       this.showFirstSuggestion();
     } else {
-      console.log('[NESEngine] All suggestions processed, going to sleep');
       this.sleep();
     }
 
@@ -330,12 +313,9 @@ export class NESEngine {
   skipSuggestion(): void {
     const prediction = this.suggestionQueue.dequeue();
     if (!prediction) {
-      console.log('[NESEngine] No suggestion to skip');
       return;
     }
 
-    console.log('[NESEngine] Skipping suggestion:', prediction);
-    console.log('[NESEngine] Remaining suggestions:', this.suggestionQueue.size());
 
     // 清除渲染
     this.renderer.clear();
@@ -345,10 +325,8 @@ export class NESEngine {
 
     // 显示下一个建议
     if (this.suggestionQueue.peek()) {
-      console.log('[NESEngine] Showing next suggestion');
       this.showFirstSuggestion();
     } else {
-      console.log('[NESEngine] All suggestions processed, going to sleep');
       this.sleep();
     }
   }
@@ -357,7 +335,6 @@ export class NESEngine {
    * 关闭当前建议（不跳过，保持在队列中）
    */
   closeSuggestion(): void {
-    console.log('[NESEngine] Closing suggestion preview');
     
     // 只清除渲染，不移除队列
     this.renderer.clear();
@@ -379,7 +356,6 @@ export class NESEngine {
    * 完全关闭 NES（清除队列并进入睡眠）
    */
   closeCompletely(): void {
-    console.log('[NESEngine] Closing NES completely');
     
     // 清除渲染
     this.renderer.clear();
@@ -394,7 +370,6 @@ export class NESEngine {
   sleep(): void {
     this.state = 'SLEEPING';
     this.suggestionQueue.clear();
-    console.log('[NESEngine] Going to sleep');
   }
 
   /**
@@ -445,22 +420,22 @@ export class NESEngine {
       matrix[i] = [i];
     }
     for (let j = 0; j <= len2; j++) {
-      matrix[0][j] = j;
+      matrix[0]![j] = j;
     }
 
     // 填充矩阵
     for (let i = 1; i <= len1; i++) {
       for (let j = 1; j <= len2; j++) {
         const cost = str1[i - 1] === str2[j - 1] ? 0 : 1;
-        matrix[i][j] = Math.min(
-          matrix[i - 1][j] + 1,      // 删除
-          matrix[i][j - 1] + 1,      // 插入
-          matrix[i - 1][j - 1] + cost // 替换
+        matrix[i]![j] = Math.min(
+          matrix[i - 1]![j]! + 1,      // 删除
+          matrix[i]![j - 1]! + 1,      // 插入
+          matrix[i - 1]![j - 1]! + cost // 替换
         );
       }
     }
 
-    const distance = matrix[len1][len2];
+    const distance = matrix[len1]![len2]!;
     const maxLen = Math.max(len1, len2);
     return 1 - distance / maxLen;
   }

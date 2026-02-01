@@ -10,6 +10,7 @@ import { FIMEngine } from './fim/FIMEngine';
 import { NESEngine } from './nes/NESEngine';
 import { EditDispatcher } from './shared/EditDispatcher';
 import { EditHistoryManager } from './shared/EditHistoryManager';
+import { logger } from './shared/logger';
 
 // 加载样式
 import './nes/styles.css';
@@ -22,11 +23,10 @@ import './nes/styles.css';
  * @returns AI 代码助手实例
  */
 export function initAICodeAssistant(
-  monacoInstance: typeof monaco,
+  _monacoInstance: typeof monaco,
   editor: monaco.editor.IStandaloneCodeEditor,
   config: AICodeAssistantConfig
 ): AICodeAssistant {
-  console.log('[AICodeAssistant] Initializing...');
 
   // 合并配置
   const finalConfig = {
@@ -50,7 +50,6 @@ export function initAICodeAssistant(
   if (finalConfig.fim?.enabled && finalConfig.fim.endpoint) {
     fimEngine = new FIMEngine(editor, finalConfig.fim.endpoint);
     fimEngine.register();
-    console.log('[AICodeAssistant] FIM Engine registered');
   }
 
   // 初始化 NES 引擎
@@ -60,7 +59,6 @@ export function initAICodeAssistant(
       ...finalConfig.nes,
       endpoint: finalConfig.nes.endpoint, // 确保 endpoint 存在
     });
-    console.log('[AICodeAssistant] NES Engine initialized');
   }
 
   // 监听编辑事件
@@ -71,8 +69,7 @@ export function initAICodeAssistant(
 
   // 设置 NES 编辑回调
   if (nesEngine) {
-    nesEngine.setOnEditApplied((lineNumber) => {
-      console.log('[AICodeAssistant] NES edit will be applied at line', lineNumber);
+    nesEngine.setOnEditApplied((_lineNumber) => {
       nextEditIsNES = true;
       // 设置 2 秒保护期，期间不触发新的 NES 检测
       nesEditProtectionUntil = Date.now() + 2000;
@@ -85,9 +82,8 @@ export function initAICodeAssistant(
       event.changes.forEach((change) => {
         // 如果是大块插入（> 10 个字符），且 Ghost Text 可见
         if (change.text.length > 10 && change.rangeLength === 0) {
-          console.log('[AICodeAssistant] Detected FIM accept');
           nextEditIsFIM = true;
-          fimEngine.markGhostTextGone(); // 标记 Ghost Text 已消失
+          fimEngine!.markGhostTextGone(); // 标记 Ghost Text 已消失
         }
       });
     }
@@ -104,7 +100,6 @@ export function initAICodeAssistant(
     }
     if (nextEditIsNES) {
       nextEditIsNES = false;
-      console.log('[AICodeAssistant] NES edit recorded, skipping detection');
       return; // NES 编辑不触发新的检测
     }
 
@@ -115,13 +110,11 @@ export function initAICodeAssistant(
 
     // 检查保护期
     if (Date.now() < nesEditProtectionUntil) {
-      console.log('[AICodeAssistant] In NES edit protection period, skipping detection');
       return;
     }
 
     // 如果 NES 已经激活，不触发新的检测
     if (nesEngine.isActive()) {
-      console.log('[AICodeAssistant] NES already active, skipping detection');
       return;
     }
 
@@ -133,13 +126,10 @@ export function initAICodeAssistant(
     debounceTimer = window.setTimeout(async () => {
       //  检查 FIM 状态，等待用户决策
       if (fimEngine && fimEngine.hasGhostText()) {
-        console.log('[AICodeAssistant] FIM Ghost Text visible, waiting for user decision...');
         const fimDecided = await fimEngine.waitForDecision(5000); // 等待最多 5 秒
         
         if (fimDecided) {
-          console.log('[AICodeAssistant] FIM decided, proceeding with NES');
         } else {
-          console.log('[AICodeAssistant] FIM decision timeout, proceeding with NES');
         }
       }
 
@@ -147,7 +137,6 @@ export function initAICodeAssistant(
       
       // 再次检查 NES 是否激活（防抖期间可能已激活）
       if (nesEngine!.isActive()) {
-        console.log('[AICodeAssistant] NES activated during debounce, skipping');
         return;
       }
 
@@ -168,19 +157,19 @@ export function initAICodeAssistant(
     }, finalConfig.nes.debounceMs);
   });
 
-  console.log('[AICodeAssistant] Initialized successfully');
+  logger.info('[AICodeAssistant] Initialized successfully');
 
   //  监听编辑器事件，检测 Ghost Text 消失
   if (fimEngine) {
     // 监听光标移动（Ghost Text 可能因光标移动而消失）
     editor.onDidChangeCursorPosition(() => {
-      if (fimEngine.hasGhostText()) {
+      if (fimEngine!.hasGhostText()) {
         // 延迟检查，避免误判
         setTimeout(() => {
           // 简单假设：光标移动后，如果没有新的 Ghost Text，则已消失
           // （更精确的方式需要 Monaco API 支持）
-          if (fimEngine.getGhostTextAge() > 200) {
-            fimEngine.markGhostTextGone();
+          if (fimEngine!.getGhostTextAge() > 200) {
+            fimEngine!.markGhostTextGone();
           }
         }, 100);
       }
@@ -197,13 +186,12 @@ export function initAICodeAssistant(
       if (e.keyCode === monaco.KeyCode.Tab) {
         // ✅ 优先级 1：FIM Ghost Text 优先
         if (fimEngine && fimEngine.hasGhostText()) {
-          console.log('[AICodeAssistant] Tab → FIM (Ghost Text visible)');
           // 不阻止默认行为，让 Monaco 处理 FIM 接受
           return;
         }
 
         // ✅ 优先级 2：NES 建议
-        if (nesEngine.isActive()) {
+        if (nesEngine!.isActive()) {
           e.preventDefault();
           e.stopPropagation();
           
@@ -246,7 +234,8 @@ export function initAICodeAssistant(
       if (fimEngine) fimEngine.dispose();
       if (nesEngine) nesEngine.dispose();
       if (debounceTimer) clearTimeout(debounceTimer);
-      console.log('[AICodeAssistant] Disposed');
+      logger.info('[AICodeAssistant] Disposed');
     },
   };
 }
+export type { AICodeAssistant, AICodeAssistantConfig };

@@ -19,7 +19,7 @@ export class CodeParser {
     const match = line.match(/function\s+(\w+)/) ||
                   line.match(/(?:const|let|var)\s+(\w+)\s*=/) ||
                   line.match(/(\w+)\s*\(/);
-    return match ? match[1] : null;
+    return match ? (match[1] || null) : null;
   }
 
   /**
@@ -27,7 +27,7 @@ export class CodeParser {
    */
   static extractType(text: string): string | null {
     const match = text.match(/:\s*([\w<>[\],\s|&]+)/);
-    return match ? match[1].trim() : null;
+    return match && match[1] ? match[1].trim() : null;
   }
 
   /**

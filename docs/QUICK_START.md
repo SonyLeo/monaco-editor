@@ -2,63 +2,24 @@
 
 ## 🚀 5 分钟快速开始
 
-### 1. 启动后端服务
+### 1. 一键启动（推荐）
 
 ```bash
-node server.mjs
+pnpm ai:vue
 ```
 
-输出应该显示：
+这会同时启动：
+- 后端服务（端口 3000）
+- 前端开发服务器（端口 5175）
+
+### 2. 打开测试页面
+
+在浏览器中访问：
 ```
-✅ Server running on http://localhost:3000
+http://localhost:5175/
 ```
 
-### 2. 启动前端开发服务器（新终端）
-
-```bash
-npm run dev:new
-```
-
-输出应该显示：
-```
-  VITE v7.2.4  ready in 123 ms
-
-  ➜  Local:   http://localhost:5174/
-```
-
-### 3. 打开测试页面
-
-在浏览器中打开以下任一页面：
-
-#### 基础测试
-```
-http://localhost:5174/examples/basic-test.html
-```
-- 验证 AI Code Assistant 初始化
-- 查看控制台输出
-
-#### FIM 测试
-```
-http://localhost:5174/examples/fim-test.html
-```
-- 输入代码，观察 Ghost Text
-- 按 Tab 接受补全
-
-#### 症状检测测试
-```
-http://localhost:5174/examples/symptom-test.html
-```
-- 修改函数名：`hello` → `greet`
-- 添加参数：`()` → `(name)`
-- 修复拼写：`functoin` → `function`
-- 观察症状检测结果
-
-#### 集成测试
-```
-http://localhost:5174/examples/integration-test.html
-```
-- 测试 FIM 和 Dispatcher 的协调
-- 观察 FIM 锁定/解锁
+---
 
 ## 📊 验证清单
 
@@ -68,8 +29,8 @@ http://localhost:5174/examples/integration-test.html
 - [ ] `/api/next-edit-prediction` 端点可访问
 
 ### 前端应用
-- [ ] Vite 开发服务器在 `http://localhost:5174` 运行
-- [ ] 测试页面可以加载
+- [ ] Vite 开发服务器在 `http://localhost:5175` 运行
+- [ ] Vue Demo 页面可以加载
 - [ ] 控制台无错误
 
 ### FIM 功能
@@ -77,34 +38,31 @@ http://localhost:5174/examples/integration-test.html
 - [ ] 按 Tab 可以接受补全
 - [ ] 按 Esc 可以关闭补全
 
-### 症状检测
-- [ ] 修改函数名时检测到 `RENAME_FUNCTION`
-- [ ] 添加参数时检测到 `ADD_PARAMETER`
-- [ ] 修复拼写时检测到 `WORD_FIX`
-
-### 协调机制
-- [ ] 检测到症状时 FIM 被锁定
-- [ ] 症状消失后 FIM 被解锁
-- [ ] 控制台显示正确的日志
+### NES 功能
+- [ ] 编辑代码时触发建议
+- [ ] 可以接受/跳过建议
+- [ ] 预览功能正常
 
 ## 🔧 常见问题
 
-### Q: 后端服务无法启动
+### Q: 服务无法启动
 
-**A**: 检查端口 3000 是否被占用
+**A**: 检查端口是否被占用
 ```bash
 # Windows
 netstat -ano | findstr :3000
+netstat -ano | findstr :5175
 
 # macOS/Linux
 lsof -i :3000
+lsof -i :5175
 ```
 
 ### Q: 前端页面加载失败
 
-**A**: 检查 Vite 服务器是否运行
+**A**: 重新启动服务
 ```bash
-npm run dev:new
+pnpm ai:vue
 ```
 
 ### Q: Ghost Text 不显示

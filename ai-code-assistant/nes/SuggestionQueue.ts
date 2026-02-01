@@ -22,7 +22,7 @@ export class SuggestionQueue {
    */
   peek(): Prediction | null {
     if (this.currentIndex < this.queue.length) {
-      return this.queue[this.currentIndex];
+      return this.queue[this.currentIndex]!;
     }
     return null;
   }

@@ -15,6 +15,7 @@ import type { Prediction, ChangeType } from '../types/index';
 import { DecorationManager } from './DecorationManager';
 import { ViewZoneManager } from './ViewZoneManager';
 import { CoordinateFixer } from '../shared/CoordinateFixer';
+import { logger } from '../shared/logger';
 
 export class NESRenderer {
   private currentPrediction: Prediction | null = null;
@@ -42,9 +43,8 @@ export class NESRenderer {
     try {
       await this.coordinateFixer.initTreeSitter();
       this.treeSitterInitialized = true;
-      console.log('[NESRenderer] Tree-sitter Layer 2 enabled');
     } catch (error) {
-      console.warn('[NESRenderer] Tree-sitter init failed, Layer 2 disabled:', error);
+      logger.warn('[NESRenderer] Tree-sitter init failed, Layer 2 disabled:', error);
     }
   }
 
@@ -70,13 +70,7 @@ export class NESRenderer {
     
     const changeType = (fixedPrediction.changeType || 'REPLACE_LINE') as ChangeType;
     
-    console.log('[NESRenderer] Rendering suggestion:', { 
-      changeType, 
-      line: fixedPrediction.targetLine,
-      hasContext: !!fixedPrediction.context,
-      wordReplaceInfo: fixedPrediction.wordReplaceInfo,
-      inlineInsertInfo: fixedPrediction.inlineInsertInfo
-    });
+
     
     this.decorationManager.renderState1(
       changeType,
@@ -96,7 +90,6 @@ export class NESRenderer {
     
     const changeType = (pred.changeType || 'REPLACE_LINE') as ChangeType;
     
-    console.log('[NESRenderer] Showing preview:', { changeType, line: pred.targetLine });
     
     const result = this.decorationManager.renderState2(
       changeType,
@@ -114,7 +107,7 @@ export class NESRenderer {
   /**
    * 显示 HintBar
    */
-  public showHintBar(lineNumber: number, explanation: string, previewShown: boolean = false, progress?: string): void {
+  public showHintBar(_lineNumber: number, explanation: string, previewShown: boolean = false, progress?: string): void {
     // 移除旧的 HintBar
     if (this.hintBarElement) {
       this.hintBarElement.remove();
@@ -161,7 +154,6 @@ export class NESRenderer {
     `;
 
     document.body.appendChild(this.hintBarElement);
-    console.log('[NESRenderer] HintBar shown');
   }
 
   /**
@@ -183,7 +175,6 @@ export class NESRenderer {
     
     const changeType = (pred.changeType || 'REPLACE_LINE') as ChangeType;
     
-    console.log('[NESRenderer] Applying suggestion:', { changeType, line: pred.targetLine });
     
     switch (changeType) {
       case 'REPLACE_LINE':
@@ -215,7 +206,6 @@ export class NESRenderer {
     this.viewZoneManager.clear();
     this.hideHintBar();
     this.currentPrediction = null;
-    console.log('[NESRenderer] Cleared all renderings');
   }
 
   /**

@@ -38,11 +38,10 @@
 - 支持 Esc 键关闭补全
 - 后缀去重（避免重复补全）
 
-**测试页面**: `http://localhost:5174/examples/fim-test.html`
+**测试页面**: Vue Demo - `http://localhost:5175/`
 
 **测试步骤**:
-1. 启动后端：`node server.mjs`
-2. 启动前端：`npm run dev:new`
+1. 启动服务：`pnpm ai:vue`
 3. 打开 FIM 测试页面
 4. 在编辑器中输入代码片段：
    ```typescript
@@ -319,24 +318,11 @@ DEBUG_PROMPT=true node server.mjs
 ## 🚀 快速测试命令
 
 ```bash
-# 1. 启动后端
-node server.mjs
+# 一键启动（推荐）
+pnpm ai:vue
 
-# 2. 启动前端（新终端）
-npm run dev:new
-
-# 3. 打开测试页面
-# 基础测试
-http://localhost:5174/examples/basic-test.html
-
-# FIM 测试
-http://localhost:5174/examples/fim-test.html
-
-# 症状检测测试
-http://localhost:5174/examples/symptom-test.html
-
-# 集成测试
-http://localhost:5174/examples/integration-test.html
+# 访问测试页面
+http://localhost:5175/
 ```
 
 ---

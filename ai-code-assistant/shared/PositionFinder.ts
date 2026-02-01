@@ -7,6 +7,8 @@
  * 3. 提供降级方案确保鲁棒性
  */
 
+import { logger } from './logger';
+
 export interface Context {
   before: string;  // 目标前面的文本（3-10 字符）
   target: string;  // 要修改的文本
@@ -30,11 +32,7 @@ export class PositionFinder {
     // 1. 构造搜索模式
     const pattern = context.before + context.target + context.after;
     
-    console.log('[PositionFinder] Searching with context', {
-      pattern: pattern.substring(0, 50) + (pattern.length > 50 ? '...' : ''),
-      lineLength: line.length,
-      context,
-    });
+
     
     // ✅ 策略 1：精确匹配
     let index = line.indexOf(pattern);
@@ -42,7 +40,6 @@ export class PositionFinder {
     if (index !== -1) {
       const result = this.buildPosition(line, index, context);
       if (result) {
-        console.log('[PositionFinder] ✅ Found by exact match');
         return result;
       }
     }
@@ -53,11 +50,9 @@ export class PositionFinder {
     const normalizedIndex = normalizedLine.indexOf(normalizedPattern);
     
     if (normalizedIndex !== -1) {
-      console.log('[PositionFinder] Trying normalized matching...');
       // 需要映射回原始字符串的位置
       const mappedPosition = this.mapNormalizedToOriginal(line, normalizedLine, normalizedIndex, context);
       if (mappedPosition) {
-        console.log('[PositionFinder] ✅ Found by normalized match');
         return mappedPosition;
       }
     }
@@ -72,14 +67,13 @@ export class PositionFinder {
         
         // 验证
         if (context.target === '' || line.substring(targetStart, targetStart + context.target.length) === context.target) {
-          console.log('[PositionFinder] ✅ Found by before-only match');
           return { startColumn, endColumn };
         }
       }
     }
     
     // ✅ 策略 4：只用 target 查找（最后降级）
-    console.warn('[PositionFinder] All strategies failed, trying target only', {
+    logger.warn('[PositionFinder] All strategies failed, trying target only', {
       pattern: pattern.substring(0, 50),
       line: line.substring(0, 100) + (line.length > 100 ? '...' : ''),
     });
@@ -97,7 +91,7 @@ export class PositionFinder {
     // 验证
     const extracted = line.substring(startColumn - 1, endColumn - 1);
     if (extracted !== context.target) {
-      console.error('[PositionFinder] Validation failed', {
+      logger.error('[PositionFinder] Validation failed', {
         extracted,
         expected: context.target,
       });
@@ -112,7 +106,7 @@ export class PositionFinder {
    */
   private static mapNormalizedToOriginal(
     original: string,
-    normalized: string,
+    _normalized: string,
     normalizedIndex: number,
     context: Context
   ): Position | null {
@@ -121,9 +115,9 @@ export class PositionFinder {
     let normalizedPos = 0;
     
     while (normalizedPos < normalizedIndex && originalIndex < original.length) {
-      if (/\s/.test(original[originalIndex])) {
+      if (/\s/.test(original[originalIndex]!)) {
         // 跳过连续空格（在规范化中只算一个）
-        while (originalIndex < original.length - 1 && /\s/.test(original[originalIndex + 1])) {
+        while (originalIndex < original.length - 1 && /\s/.test(original[originalIndex + 1]!)) {
           originalIndex++;
         }
       }
@@ -159,7 +153,7 @@ export class PositionFinder {
     const index = line.indexOf(target);
     
     if (index === -1) {
-      console.error('[PositionFinder] ❌ Target not found in line', {
+      logger.error('[PositionFinder] ❌ Target not found in line', {
         target,
         line: line.substring(0, 100) + (line.length > 100 ? '...' : ''),
       });
@@ -169,7 +163,7 @@ export class PositionFinder {
     const startColumn = index + 1;
     const endColumn = startColumn + target.length;
     
-    console.warn('[PositionFinder] ⚠️ Found by target only (may be inaccurate)', {
+    logger.warn('[PositionFinder] ⚠️ Found by target only (may be inaccurate)', {
       startColumn,
       endColumn,
       target,
@@ -207,10 +201,7 @@ export class PositionFinder {
       searchStart = index + 1;
     }
     
-    console.log('[PositionFinder] Found multiple matches', {
-      count: positions.length,
-      positions,
-    });
+
     
     return positions;
   }
@@ -228,7 +219,7 @@ export class PositionFinder {
     const isValid = extracted === expectedText;
     
     if (!isValid) {
-      console.error('[PositionFinder] Validation failed', {
+      logger.error('[PositionFinder] Validation failed', {
         extracted,
         expected: expectedText,
         position,
@@ -249,13 +240,13 @@ export class PositionFinder {
    */
   static extractContext(
     originalLine: string,
-    suggestionText: string,
+    _suggestionText: string,
     target: string
   ): Context | null {
     const targetIndex = originalLine.indexOf(target);
     
     if (targetIndex === -1) {
-      console.warn('[PositionFinder] Cannot extract context: target not found');
+      logger.warn('[PositionFinder] Cannot extract context: target not found');
       return null;
     }
     
@@ -273,7 +264,6 @@ export class PositionFinder {
       after: after.substring(0, 10),
     };
     
-    console.log('[PositionFinder] Auto-extracted context', context);
     
     return context;
   }

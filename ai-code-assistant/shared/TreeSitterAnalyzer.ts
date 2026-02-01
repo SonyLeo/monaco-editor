@@ -3,6 +3,8 @@
  * 提供精确的 AST 节点分析和符号推断
  */
 
+import { logger } from './logger';
+
 // 定义 Tree-sitter 类型（因为 web-tree-sitter 的类型定义不完整）
 type SyntaxNode = {
   type: string;
@@ -40,7 +42,7 @@ if (typeof window === 'undefined') {
   import('web-tree-sitter').then(module => {
     TreeSitterModule = module;
   }).catch(() => {
-    console.warn('[TreeSitter] Module not available in Node.js environment');
+    logger.warn('[TreeSitter] Module not available in Node.js environment');
   });
 }
 
@@ -101,11 +103,9 @@ export class TreeSitterAnalyzer {
       // 检测环境
       if (typeof window !== 'undefined' && (window as any).TreeSitter) {
         // 浏览器环境 - 使用全局 TreeSitter（由 CDN 加载）
-        console.log('[TreeSitter] Using global TreeSitter from CDN');
         TreeSitterAPI = (window as any).TreeSitter;
       } else if (TreeSitterModule) {
         // Node.js 环境 - 使用导入的模块
-        console.log('[TreeSitter] Using imported TreeSitter module');
         TreeSitterAPI = TreeSitterModule.Parser || TreeSitterModule;
       } else {
         throw new Error('TreeSitter not available. In browser, load web-tree-sitter via CDN first.');
@@ -118,22 +118,19 @@ export class TreeSitterAnalyzer {
       
       // 创建 Parser 实例
       this.parser = new TreeSitterAPI() as ParserType;
-      console.log('[TreeSitter] Parser instance created');
       
       // 加载语言
       const LanguageClass = TreeSitterAPI.Language;
       if (LanguageClass && typeof LanguageClass.load === 'function') {
         this.language = await LanguageClass.load(languageFile);
-        console.log('[TreeSitter] Language loaded from:', languageFile);
       } else {
         throw new Error('Language.load not available');
       }
       
       this.parser.setLanguage(this.language);
       this.initialized = true;
-      console.log('[TreeSitter] Initialized successfully');
     } catch (error) {
-      console.error('[TreeSitter] Initialization failed:', error);
+      logger.error('[TreeSitter] Initialization failed:', error);
       throw error;
     }
   }
@@ -143,7 +140,7 @@ export class TreeSitterAnalyzer {
    */
   analyzeEdit(code: string, lineNumber: number, column: number): ASTNodeInfo | null {
     if (!this.parser || !this.initialized) {
-      console.warn('[TreeSitter] Parser not initialized');
+      logger.warn('[TreeSitter] Parser not initialized');
       return null;
     }
 
@@ -163,7 +160,7 @@ export class TreeSitterAnalyzer {
       // 3. 提取节点信息
       return this.extractNodeInfo(node);
     } catch (error) {
-      console.error('[TreeSitter] Parse error:', error);
+      logger.error('[TreeSitter] Parse error:', error);
       return null;
     }
   }
@@ -274,12 +271,12 @@ export class TreeSitterAnalyzer {
 
     // 检查当前节点
     if (typeMap[node.type]) {
-      return typeMap[node.type];
+      return typeMap[node.type]!;
     }
 
     // 检查父节点
     if (node.parent && typeMap[node.parent.type]) {
-      return typeMap[node.parent.type];
+      return typeMap[node.parent.type]!;
     }
 
     return null;
@@ -448,22 +445,7 @@ export class TreeSitterAnalyzer {
     return null;
   }
 
-  /**
-   * 查找所有匹配的节点（递归）
-   */
-  private findAllNodesByType(node: SyntaxNode, type: string): SyntaxNode[] {
-    const results: SyntaxNode[] = [];
-    
-    if (node.type === type) {
-      results.push(node);
-    }
-    
-    for (const child of node.children) {
-      results.push(...this.findAllNodesByType(child, type));
-    }
-    
-    return results;
-  }
+
 
   /**
    * 基于 AST 查找目标位置（Layer 2 核心方法）
@@ -483,7 +465,7 @@ export class TreeSitterAnalyzer {
     parentType?: string
   ): { startColumn: number; endColumn: number } | null {
     if (!this.parser || !this.initialized) {
-      console.warn('[TreeSitter] Parser not initialized');
+      logger.warn('[TreeSitter] Parser not initialized');
       return null;
     }
 
@@ -520,32 +502,21 @@ export class TreeSitterAnalyzer {
       findMatches(tree.rootNode);
 
       if (matchingNodes.length === 0) {
-        console.warn('[TreeSitter] No matching nodes found', {
-          lineNumber,
-          targetText,
-          nodeType,
-          parentType
-        });
+
         return null;
       }
 
       // 如果有多个匹配，选择第一个（或可以根据其他条件选择）
-      const targetNode = matchingNodes[0];
+      const targetNode = matchingNodes[0]!;
 
-      console.log('[TreeSitter] ✅ Found target by AST', {
-        nodeType: targetNode.type,
-        text: targetNode.text,
-        startColumn: targetNode.startPosition.column + 1,
-        endColumn: targetNode.endPosition.column + 1,
-        matchCount: matchingNodes.length
-      });
+
 
       return {
         startColumn: targetNode.startPosition.column + 1, // 转换为 1-based
         endColumn: targetNode.endPosition.column + 1
       };
     } catch (error) {
-      console.error('[TreeSitter] findTargetPosition error:', error);
+      logger.error('[TreeSitter] findTargetPosition error:', error);
       return null;
     }
   }
@@ -568,7 +539,7 @@ export class TreeSitterAnalyzer {
     }
   ): { startColumn: number; endColumn: number } | null {
     if (!this.parser || !this.initialized) {
-      console.warn('[TreeSitter] Parser not initialized');
+      logger.warn('[TreeSitter] Parser not initialized');
       return null;
     }
 
@@ -618,37 +589,29 @@ export class TreeSitterAnalyzer {
       findMatches(tree.rootNode);
 
       if (matchingNodes.length === 0) {
-        console.warn('[TreeSitter] No matching nodes found for query', query);
         return null;
       }
 
       // 选择指定索引的节点
       const index = query.index || 0;
       if (index >= matchingNodes.length) {
-        console.warn('[TreeSitter] Index out of range', {
+        logger.warn('[TreeSitter] Index out of range', {
           index,
           matchCount: matchingNodes.length
         });
         return null;
       }
 
-      const targetNode = matchingNodes[index];
+      const targetNode = matchingNodes[index]!;
 
-      console.log('[TreeSitter] ✅ Found target by query', {
-        nodeType: targetNode.type,
-        text: targetNode.text,
-        startColumn: targetNode.startPosition.column + 1,
-        endColumn: targetNode.endPosition.column + 1,
-        matchCount: matchingNodes.length,
-        selectedIndex: index
-      });
+
 
       return {
         startColumn: targetNode.startPosition.column + 1,
         endColumn: targetNode.endPosition.column + 1
       };
     } catch (error) {
-      console.error('[TreeSitter] findByQuery error:', error);
+      logger.error('[TreeSitter] findByQuery error:', error);
       return null;
     }
   }

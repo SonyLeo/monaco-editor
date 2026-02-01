@@ -7,10 +7,11 @@
  * 3. fast-diff fallback (DiffCalculator) - 70%+ 准确率
  */
 
-import type { Prediction, WordReplaceInfo, InlineInsertInfo } from '../types/index';
-import { PositionFinder, type Context, type Position } from './PositionFinder';
+import type { Prediction } from '../types/index';
+import { PositionFinder } from './PositionFinder';
 import { DiffCalculator } from './DiffCalculator';
 import { TreeSitterAnalyzer } from './TreeSitterAnalyzer';
+import { logger } from './logger';
 
 export class CoordinateFixer {
   private treeSitterAnalyzer: TreeSitterAnalyzer | null = null;
@@ -33,10 +34,9 @@ export class CoordinateFixer {
     this.treeSitterAnalyzer = new TreeSitterAnalyzer();
     this.treeSitterInitPromise = this.treeSitterAnalyzer.init(languageFile)
       .then(() => {
-        console.log('[CoordinateFixer] Tree-sitter initialized, Layer 2 enabled');
       })
       .catch((error) => {
-        console.warn('[CoordinateFixer] Tree-sitter init failed, Layer 2 disabled:', error);
+        logger.warn('[CoordinateFixer] Tree-sitter init failed, Layer 2 disabled:', error);
         this.treeSitterAnalyzer = null;
       });
 
@@ -65,13 +65,13 @@ export class CoordinateFixer {
   fix(prediction: Prediction, lineContent?: string): Prediction {
     // 确保 targetLine 是有效的正整数
     if (!prediction.targetLine || prediction.targetLine < 1) {
-      console.warn('[CoordinateFixer] Invalid targetLine:', prediction.targetLine);
+      logger.warn('[CoordinateFixer] Invalid targetLine:', prediction.targetLine);
       prediction.targetLine = 1;
     }
 
     // 如果没有提供 lineContent，无法进行坐标修复
     if (!lineContent) {
-      console.warn('[CoordinateFixer] No lineContent provided, skipping coordinate fix');
+      logger.warn('[CoordinateFixer] No lineContent provided, skipping coordinate fix');
       return prediction;
     }
 
@@ -82,7 +82,6 @@ export class CoordinateFixer {
       const info = prediction.wordReplaceInfo;
       // 验证坐标是否有效
       if (info.startColumn > 0 && info.endColumn > 0 && info.replacement) {
-        console.log('[CoordinateFixer] REPLACE_WORD already has valid info, skipping');
         return prediction;
       }
     }
@@ -91,13 +90,11 @@ export class CoordinateFixer {
       const info = prediction.inlineInsertInfo;
       // 验证坐标是否有效
       if (info.insertColumn > 0 && info.content) {
-        console.log('[CoordinateFixer] INLINE_INSERT already has valid info, skipping');
         return prediction;
       }
     }
     
     // 坐标缺失或无效，使用降级策略补救
-    console.log('[CoordinateFixer] Info missing or invalid, applying fallback fix');
     
     switch (changeType) {
       case 'REPLACE_WORD':
@@ -176,7 +173,6 @@ export class CoordinateFixer {
       }
     }
     
-    console.log('[CoordinateFixer] Calculated replacement word:', replacementWord);
 
     // Layer 1: Context-based matching (优先级最高)
     if (prediction.context) {
@@ -189,11 +185,10 @@ export class CoordinateFixer {
           startColumn: position.startColumn,
           endColumn: position.endColumn
         };
-        console.log('[CoordinateFixer] ✅ Layer 1: Context-based matching succeeded');
         return;
       }
       
-      console.warn('[CoordinateFixer] ⚠️ Layer 1 failed, trying Layer 2...');
+      logger.warn('[CoordinateFixer] ⚠️ Layer 1 failed, trying Layer 2...');
     }
 
     // Layer 2: Tree-sitter AST matching
@@ -215,7 +210,6 @@ export class CoordinateFixer {
             startColumn: position.startColumn,
             endColumn: position.endColumn
           };
-          console.log('[CoordinateFixer] ✅ Layer 2: Tree-sitter AST matching succeeded (using query)');
           return;
         }
       }
@@ -238,12 +232,11 @@ export class CoordinateFixer {
             startColumn: position.startColumn,
             endColumn: position.endColumn
           };
-          console.log('[CoordinateFixer] ✅ Layer 2: Tree-sitter AST matching succeeded (using target)');
           return;
         }
       }
       
-      console.warn('[CoordinateFixer] ⚠️ Layer 2 failed, trying Layer 3...');
+      logger.warn('[CoordinateFixer] ⚠️ Layer 2 failed, trying Layer 3...');
     }
     
     // Layer 3: fast-diff fallback
@@ -252,9 +245,8 @@ export class CoordinateFixer {
     
     if (fallbackDiffResult) {
       prediction.wordReplaceInfo = fallbackDiffResult;
-      console.log('[CoordinateFixer] ⚠️ Layer 3: fast-diff fallback succeeded');
     } else {
-      console.error('[CoordinateFixer] ❌ All layers failed for REPLACE_WORD');
+      logger.error('[CoordinateFixer] ❌ All layers failed for REPLACE_WORD');
     }
   }
 
@@ -265,21 +257,10 @@ export class CoordinateFixer {
   private fixInlineInsertCoordinates(prediction: Prediction, lineContent: string): void {
     const originalLine = prediction.originalLineContent || lineContent;
     
-    console.log('[CoordinateFixer] 🔧 fixInlineInsertCoordinates:', {
-      targetLine: prediction.targetLine,
-      originalLine: JSON.stringify(originalLine),
-      suggestionText: JSON.stringify(prediction.suggestionText),
-      context: prediction.context
-    });
+
     
     // Layer 1: Context-based matching
     if (prediction.context) {
-      console.log('[CoordinateFixer] 🔍 Layer 1: Trying Context-based matching');
-      console.log('  Context:', {
-        before: JSON.stringify(prediction.context.before),
-        target: JSON.stringify(prediction.context.target),
-        after: JSON.stringify(prediction.context.after)
-      });
       
       const position = PositionFinder.findByContext(lineContent, prediction.context);
       
@@ -301,12 +282,10 @@ export class CoordinateFixer {
 
         return;
       } else {
-        console.log('  ❌ Position not found by context');
       }
       
-      console.warn('[CoordinateFixer] ⚠️ Layer 1 failed, trying Layer 2...');
+      logger.warn('[CoordinateFixer] ⚠️ Layer 1 failed, trying Layer 2...');
     } else {
-      console.log('[CoordinateFixer] ⏭️ No context provided, skipping Layer 1');
     }
 
     // Layer 2: Tree-sitter AST matching
@@ -330,7 +309,6 @@ export class CoordinateFixer {
             content: insertContent,  // ✅ 只包含插入部分
             insertColumn: position.endColumn  // 在目标之后插入
           };
-          console.log('[CoordinateFixer] ✅ Layer 2: Tree-sitter AST matching succeeded (using query)');
           return;
         }
       }
@@ -354,12 +332,11 @@ export class CoordinateFixer {
             content: insertContent,  // ✅ 只包含插入部分
             insertColumn: position.endColumn  // 在目标之后插入
           };
-          console.log('[CoordinateFixer] ✅ Layer 2: Tree-sitter AST matching succeeded (using target)');
           return;
         }
       }
       
-      console.warn('[CoordinateFixer] ⚠️ Layer 2 failed, trying Layer 3...');
+      logger.warn('[CoordinateFixer] ⚠️ Layer 2 failed, trying Layer 3...');
     }
     
     // Layer 3: fast-diff fallback
@@ -368,9 +345,8 @@ export class CoordinateFixer {
     
     if (inlineInsertInfo) {
       prediction.inlineInsertInfo = inlineInsertInfo;
-      console.log('[CoordinateFixer] ⚠️ Layer 3: fast-diff fallback succeeded');
     } else {
-      console.error('[CoordinateFixer] ❌ All layers failed for INLINE_INSERT');
+      logger.error('[CoordinateFixer] ❌ All layers failed for INLINE_INSERT');
     }
   }
 

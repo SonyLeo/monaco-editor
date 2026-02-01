@@ -4,6 +4,7 @@
  * 使用 fast-diff 库进行精确的 diff 计算
  */
 
+
 import diff from 'fast-diff';
 import type { WordReplaceInfo, InlineInsertInfo } from '../types/index';
 
@@ -16,7 +17,7 @@ export class DiffCalculator {
     const diffs = diff(original, suggested);
     
     // 如果完全相同，返回 null
-    if (diffs.length === 1 && diffs[0][0] === diff.EQUAL) {
+    if (diffs.length === 1 && diffs[0]![0] === 0) {
       return null;
     }
 
@@ -27,19 +28,19 @@ export class DiffCalculator {
     let hasMultipleChanges = false;
 
     for (const [operation, text] of diffs) {
-      if (operation === diff.EQUAL) {
+      if (operation === 0) {
         // 如果已经有变更，遇到 EQUAL 说明有多处变更
         if (startColumn !== -1 && (word || replacement)) {
           hasMultipleChanges = true;
         }
         currentIndex += text.length;
-      } else if (operation === diff.DELETE) {
+      } else if (operation === -1) {
         if (startColumn === -1) {
           startColumn = currentIndex;
         }
         word += text;
         currentIndex += text.length;
-      } else if (operation === diff.INSERT) {
+      } else if (operation === 1) {
         if (startColumn === -1) {
           startColumn = currentIndex;
         }
@@ -54,7 +55,6 @@ export class DiffCalculator {
     
     // 如果有多处变更，返回 null（应该用 REPLACE_LINE）
     if (hasMultipleChanges) {
-      console.warn('[DiffCalculator] Multiple changes detected, should use REPLACE_LINE');
       return null;
     }
 
@@ -82,12 +82,12 @@ export class DiffCalculator {
     let currentIndex = 0;
 
     for (const [operation, text] of diffs) {
-      if (operation === diff.DELETE) {
+      if (operation === -1) {
         hasDelete = true;
         break;
-      } else if (operation === diff.EQUAL) {
+      } else if (operation === 0) {
         currentIndex += text.length;
-      } else if (operation === diff.INSERT) {
+      } else if (operation === 1) {
         if (!insertContent) {
           insertPosition = currentIndex;
         }
