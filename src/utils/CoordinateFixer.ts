@@ -245,6 +245,16 @@ export class CoordinateFixer {
     
     if (fallbackDiffResult) {
       prediction.wordReplaceInfo = fallbackDiffResult;
+    } else if (replacementWord) {
+      // ✅ 终极兜底：如果所有层级都失败，但我们计算出了替换词，则至少提供替换词
+      // 坐标回退到行首
+      prediction.wordReplaceInfo = {
+        word: '',
+        replacement: replacementWord,
+        startColumn: 1,
+        endColumn: (prediction.originalLineContent || lineContent).length + 1
+      };
+      logger.warn('[CoordinateFixer] ⚠️ Used calculation fallback for REPLACE_WORD');
     } else {
       logger.error('[CoordinateFixer] ❌ All layers failed for REPLACE_WORD');
     }

@@ -76,16 +76,18 @@ export class PositionFinder {
           
           // 如果 after 完全不匹配（连子串都不包含），说明 context 严重错误
           if (!possibleAfter.includes(context.after.substring(0, Math.min(context.after.length, 3)))) {
-            logger.warn('[PositionFinder] ✗ Strategy 3: after pattern mismatch, skipping', {
+            logger.warn('[PositionFinder] ⚠️ Strategy 3: after pattern mismatch, skipping to next strategy', {
               before: context.before,
               expectedAfter: context.after,
               actualAfter: possibleAfter.substring(0, 20),
             });
-            return null; // 拒绝使用这个匹配
+            // 不直接返回 null，而是让逻辑流向下执行到 Strategy 4
+          } else {
+            return { startColumn, endColumn };
           }
+        } else {
+          return { startColumn, endColumn };
         }
-        
-        return { startColumn, endColumn };
       }
     }
   }
@@ -134,9 +136,13 @@ export class PositionFinder {
     
     while (normalizedPos < normalizedIndex && originalIndex < original.length) {
       if (/\s/.test(original[originalIndex]!)) {
-        // 跳过连续空格（在规范化中只算一个）
-        while (originalIndex < original.length - 1 && /\s/.test(original[originalIndex + 1]!)) {
-          originalIndex++;
+        // 如果原始是空格，跳过它直到找到下一个非空字符或达到对应的规范化位置
+        // 注意：规范化字符串中所有空格都被合并为 1 个 ' '
+        if (/\s/.test(_normalized[normalizedPos]!)) {
+          // 只有当 normalized 也是空格时，我们才停止跳过 original 的空格
+          while (originalIndex < original.length - 1 && /\s/.test(original[originalIndex + 1]!)) {
+            originalIndex++;
+          }
         }
       }
       originalIndex++;

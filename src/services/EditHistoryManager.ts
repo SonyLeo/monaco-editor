@@ -236,7 +236,14 @@ export class EditHistoryManager {
       lastEdit.newText += newEdit.newText;
     } else if (lastEdit.type === 'delete' && newEdit.type === 'delete') {
       // 连续删除：累加旧文本
-      lastEdit.oldText += newEdit.oldText;
+      if (newEdit.column < lastEdit.column) {
+        // 向前移动式的删除（如 Backspace）
+        lastEdit.oldText = newEdit.oldText + lastEdit.oldText;
+        lastEdit.column = newEdit.column; // 更新起始点为更前面的位置
+      } else {
+        // 向后移动式的删除（如 Delete 键）
+        lastEdit.oldText += newEdit.oldText;
+      }
       lastEdit.rangeLength += newEdit.rangeLength;
     } else if (lastEdit.type === 'insert' && newEdit.type === 'delete') {
       // 插入后删除（试错）：

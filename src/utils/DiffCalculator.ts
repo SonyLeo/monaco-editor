@@ -27,20 +27,32 @@ export class DiffCalculator {
     let replacement = '';
     let hasMultipleChanges = false;
 
+    let hasFinishedChange = false;
+
     for (const [operation, text] of diffs) {
       if (operation === 0) {
-        // 如果已经有变更，遇到 EQUAL 说明有多处变更
-        if (startColumn !== -1 && (word || replacement)) {
-          hasMultipleChanges = true;
+        // 遇到 EQUAL
+        if (startColumn !== -1) {
+          // 如果已经开始记录变更，说明变更块结束了
+          hasFinishedChange = true;
         }
         currentIndex += text.length;
       } else if (operation === -1) {
+        // 遇到 DELETE
+        if (hasFinishedChange) { 
+           // 之前已经结束过一次变更，现在又来了，说明有多处
+           return null;
+        }
         if (startColumn === -1) {
           startColumn = currentIndex;
         }
         word += text;
         currentIndex += text.length;
       } else if (operation === 1) {
+        // 遇到 INSERT
+        if (hasFinishedChange) {
+           return null;
+        }
         if (startColumn === -1) {
           startColumn = currentIndex;
         }
@@ -78,24 +90,35 @@ export class DiffCalculator {
     // 检查是否只有插入操作（没有删除）
     let hasDelete = false;
     let insertContent = '';
-    let insertPosition = 0;
+    let insertPosition = -1;
     let currentIndex = 0;
+    
+    let hasInsertionBlock = false;
+    let hasFinishedInsertion = false;
 
     for (const [operation, text] of diffs) {
       if (operation === -1) {
         hasDelete = true;
         break;
       } else if (operation === 0) {
+        if (hasInsertionBlock) {
+           hasFinishedInsertion = true;
+        }
         currentIndex += text.length;
       } else if (operation === 1) {
-        if (!insertContent) {
+        if (hasFinishedInsertion) {
+           // 多处插入，不符合单次 INLINE_INSERT
+           return null;
+        }
+        if (!hasInsertionBlock) {
           insertPosition = currentIndex;
+          hasInsertionBlock = true;
         }
         insertContent += text;
       }
     }
 
-    // 如果有删除操作，不是纯插入
+    // 如果有删除操作，不是纯插入；如果没有插入内容，也不能叫插入
     if (hasDelete || !insertContent) {
       return null;
     }
