@@ -162,68 +162,59 @@ export class NESEngine {
         return true;
       })
       .map(pred => {
-      // 如果没有 originalLineContent，从模型中获取
-      const originalLine = pred.originalLineContent || model.getLineContent(pred.targetLine);
+      // 获取编辑器当前的行内容（用于定位）
+      const actualLine = model.getLineContent(pred.targetLine);
+      // 获取 AI 认为的原始行内容（用于 diff 计算）
+      const originalLine = pred.originalLineContent || actualLine;
       
-      // ✅ 策略 1：优先使用上下文匹配（准确率 90%+）
-      if (pred.context) {
-        console.log('[NESEngine] Trying context matching for line', pred.targetLine);
+      // ✅ 优先使用 DiffCalculator 计算完整的变更信息
+      const diffResult = DiffCalculator.detectChangeType(originalLine, pred.suggestionText);
+      
+      // 使用 AI 指定的 changeType（如果有），否则用 diff 自动检测的
+      const finalChangeType = pred.changeType || diffResult.changeType;
+      
+      // ✅ 策略：PositionFinder 只用于验证/修正位置，DiffCalculator 提供完整内容
+      let finalWordReplaceInfo = diffResult.wordReplaceInfo;
+      let finalInlineInsertInfo = diffResult.inlineInsertInfo;
+      
+      // 如果有 context，尝试用 context 修正位置（更精确）
+      if (pred.context && pred.context.target !== undefined) {
         
-        const position = PositionFinder.findByContext(originalLine, pred.context);
+        // 使用 actualLine 进行定位（编辑器当前内容）
+        const position = PositionFinder.findByContext(actualLine, pred.context);
         
         if (position) {
-          console.log('[NESEngine] ✓ Context matching succeeded', {
-            line: pred.targetLine,
-            startColumn: position.startColumn,
-            endColumn: position.endColumn,
-            target: pred.context.target,
-          });
           
-          // 根据 changeType 构造完整的位置信息
-          if (pred.changeType === 'REPLACE_WORD') {
-            return {
-              ...pred,
-              originalLineContent: originalLine,
-              wordReplaceInfo: {
-                word: pred.context.target,
-                replacement: '', // 将从 suggestionText 中提取
-                startColumn: position.startColumn,
-                endColumn: position.endColumn,
-              },
+          // 根据 changeType 修正位置
+          if (finalChangeType === 'REPLACE_WORD' && finalWordReplaceInfo) {
+            // 用 context 定位的 startColumn/endColumn 更精确
+            finalWordReplaceInfo = {
+              ...finalWordReplaceInfo,
+              startColumn: position.startColumn,
+              endColumn: position.endColumn,
             };
-          } else if (pred.changeType === 'INLINE_INSERT') {
-            return {
-              ...pred,
-              originalLineContent: originalLine,
-              inlineInsertInfo: {
-                content: '', // 将从 suggestionText 中提取
-                insertColumn: position.startColumn,
-              },
+          } else if (finalChangeType === 'INLINE_INSERT' && finalInlineInsertInfo) {
+            // 用 context 定位的插入点
+            const insertColumn = pred.context.target === '' 
+              ? position.startColumn 
+              : position.endColumn;
+            finalInlineInsertInfo = {
+              ...finalInlineInsertInfo,
+              insertColumn: insertColumn,
             };
           }
         } else {
-          console.warn('[NESEngine] ✗ Context matching failed, will fallback to DiffCalculator');
+          console.warn('[NESEngine] ✗ Context matching failed, using DiffCalculator result');
         }
       }
-      
-      // ✅ 策略 2：降级到 DiffCalculator（兜底方案）
-      console.log('[NESEngine] Using DiffCalculator for line', pred.targetLine);
-      const diff = DiffCalculator.detectChangeType(originalLine, pred.suggestionText);
-      
-      console.log('[NESEngine] Auto-calculated diff:', {
-        line: pred.targetLine,
-        changeType: diff.changeType,
-        wordReplaceInfo: diff.wordReplaceInfo,
-        inlineInsertInfo: diff.inlineInsertInfo
-      });
 
-      // 返回增强后的预测
+      // 返回增强后的预测（完整信息）
       return {
         ...pred,
         originalLineContent: originalLine,
-        changeType: diff.changeType,
-        wordReplaceInfo: diff.wordReplaceInfo,
-        inlineInsertInfo: diff.inlineInsertInfo
+        changeType: finalChangeType,
+        wordReplaceInfo: finalWordReplaceInfo,
+        inlineInsertInfo: finalInlineInsertInfo,
       };
     });
 
@@ -311,9 +302,6 @@ export class NESEngine {
       console.log('[NESEngine] No suggestion to accept');
       return;
     }
-
-    console.log('[NESEngine] Accepting suggestion:', prediction);
-    console.log('[NESEngine] Remaining suggestions:', this.suggestionQueue.size());
 
     // 使用新的 API：applySuggestion（自动根据 changeType 处理）
     this.renderer.applySuggestion(prediction);

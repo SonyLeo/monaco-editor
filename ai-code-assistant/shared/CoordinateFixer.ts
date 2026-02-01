@@ -53,6 +53,11 @@ export class CoordinateFixer {
   /**
    * 修复预测结果的坐标（增强版）
    * 
+   * 注意：主要的坐标计算已在 NESEngine.handlePredictions() 中完成
+   * 此方法主要用于：
+   * 1. 验证已有坐标是否正确
+   * 2. 如果坐标缺失或无效，使用 3 层降级策略补救
+   * 
    * @param prediction - 预测结果
    * @param lineContent - 当前行的完整内容（从编辑器获取）
    * @returns 修复后的预测结果
@@ -70,8 +75,29 @@ export class CoordinateFixer {
       return prediction;
     }
 
-    // 根据 changeType 进行不同的坐标修复
     const changeType = prediction.changeType || 'REPLACE_LINE';
+    
+    // 检查是否已有完整的坐标信息
+    if (changeType === 'REPLACE_WORD' && prediction.wordReplaceInfo) {
+      const info = prediction.wordReplaceInfo;
+      // 验证坐标是否有效
+      if (info.startColumn > 0 && info.endColumn > 0 && info.replacement) {
+        console.log('[CoordinateFixer] REPLACE_WORD already has valid info, skipping');
+        return prediction;
+      }
+    }
+    
+    if (changeType === 'INLINE_INSERT' && prediction.inlineInsertInfo) {
+      const info = prediction.inlineInsertInfo;
+      // 验证坐标是否有效
+      if (info.insertColumn > 0 && info.content) {
+        console.log('[CoordinateFixer] INLINE_INSERT already has valid info, skipping');
+        return prediction;
+      }
+    }
+    
+    // 坐标缺失或无效，使用降级策略补救
+    console.log('[CoordinateFixer] Info missing or invalid, applying fallback fix');
     
     switch (changeType) {
       case 'REPLACE_WORD':
@@ -237,29 +263,50 @@ export class CoordinateFixer {
    * 使用 3 层降级策略
    */
   private fixInlineInsertCoordinates(prediction: Prediction, lineContent: string): void {
+    const originalLine = prediction.originalLineContent || lineContent;
+    
+    console.log('[CoordinateFixer] 🔧 fixInlineInsertCoordinates:', {
+      targetLine: prediction.targetLine,
+      originalLine: JSON.stringify(originalLine),
+      suggestionText: JSON.stringify(prediction.suggestionText),
+      context: prediction.context
+    });
+    
     // Layer 1: Context-based matching
     if (prediction.context) {
+      console.log('[CoordinateFixer] 🔍 Layer 1: Trying Context-based matching');
+      console.log('  Context:', {
+        before: JSON.stringify(prediction.context.before),
+        target: JSON.stringify(prediction.context.target),
+        after: JSON.stringify(prediction.context.after)
+      });
+      
       const position = PositionFinder.findByContext(lineContent, prediction.context);
       
-      if (position) {
+      if (position) {        
         // INLINE_INSERT: 如果 target 为空，插入在 before 之后
         // 如果 target 不为空，插入在 target 之后
         const insertColumn = prediction.context.target === '' 
           ? position.startColumn  // target 为空时，startColumn 就是插入位置
           : position.endColumn;   // target 不为空时，在 target 之后插入
+                
+        // ⚡ 使用 fast-diff 计算实际插入内容（而不是整行 suggestionText）
+        const diffResult = DiffCalculator.calculateInlineInsert(originalLine, prediction.suggestionText);
+        const insertContent = diffResult?.content || prediction.suggestionText;
         
         prediction.inlineInsertInfo = {
-          content: prediction.suggestionText,
+          content: insertContent,  // ✅ 只包含插入部分，如 ", 35"
           insertColumn: insertColumn
         };
-        console.log('[CoordinateFixer] ✅ Layer 1: Context-based matching succeeded', {
-          target: prediction.context.target,
-          insertColumn
-        });
+
         return;
+      } else {
+        console.log('  ❌ Position not found by context');
       }
       
       console.warn('[CoordinateFixer] ⚠️ Layer 1 failed, trying Layer 2...');
+    } else {
+      console.log('[CoordinateFixer] ⏭️ No context provided, skipping Layer 1');
     }
 
     // Layer 2: Tree-sitter AST matching
@@ -275,8 +322,12 @@ export class CoordinateFixer {
         });
         
         if (position) {
+          // ⚡ 使用 fast-diff 计算实际插入内容
+          const diffResult = DiffCalculator.calculateInlineInsert(originalLine, prediction.suggestionText);
+          const insertContent = diffResult?.content || prediction.suggestionText;
+          
           prediction.inlineInsertInfo = {
-            content: prediction.suggestionText,
+            content: insertContent,  // ✅ 只包含插入部分
             insertColumn: position.endColumn  // 在目标之后插入
           };
           console.log('[CoordinateFixer] ✅ Layer 2: Tree-sitter AST matching succeeded (using query)');
@@ -295,8 +346,12 @@ export class CoordinateFixer {
         );
         
         if (position) {
+          // ⚡ 使用 fast-diff 计算实际插入内容
+          const diffResult = DiffCalculator.calculateInlineInsert(originalLine, prediction.suggestionText);
+          const insertContent = diffResult?.content || prediction.suggestionText;
+          
           prediction.inlineInsertInfo = {
-            content: prediction.suggestionText,
+            content: insertContent,  // ✅ 只包含插入部分
             insertColumn: position.endColumn  // 在目标之后插入
           };
           console.log('[CoordinateFixer] ✅ Layer 2: Tree-sitter AST matching succeeded (using target)');
@@ -308,7 +363,7 @@ export class CoordinateFixer {
     }
     
     // Layer 3: fast-diff fallback
-    const originalLine = prediction.originalLineContent || lineContent;
+    // originalLine 已在函数开头定义
     const inlineInsertInfo = DiffCalculator.calculateInlineInsert(originalLine, prediction.suggestionText);
     
     if (inlineInsertInfo) {

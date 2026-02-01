@@ -89,8 +89,6 @@ export class EditHistoryManager {
     if (this.editHistory.length > this.MAX_HISTORY_SIZE) {
       this.editHistory = this.editHistory.slice(-this.MAX_HISTORY_SIZE);
     }
-
-    console.log('[EditHistoryManager] Recorded edit:', edit, merged ? '(merged)' : '(new)');
   }
 
   /**

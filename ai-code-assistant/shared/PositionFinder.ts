@@ -31,50 +31,121 @@ export class PositionFinder {
     const pattern = context.before + context.target + context.after;
     
     console.log('[PositionFinder] Searching with context', {
-      pattern,
+      pattern: pattern.substring(0, 50) + (pattern.length > 50 ? '...' : ''),
       lineLength: line.length,
       context,
     });
     
-    // 2. 在行中查找
-    const index = line.indexOf(pattern);
+    // ✅ 策略 1：精确匹配
+    let index = line.indexOf(pattern);
     
-    if (index === -1) {
-      console.warn('[PositionFinder] Pattern not found, trying target only', {
-        pattern,
-        line: line.substring(0, 100) + (line.length > 100 ? '...' : ''),
-      });
-      
-      // 降级：只用 target 查找
-      return this.findByTargetOnly(line, context.target);
+    if (index !== -1) {
+      const result = this.buildPosition(line, index, context);
+      if (result) {
+        console.log('[PositionFinder] ✅ Found by exact match');
+        return result;
+      }
     }
     
-    // 3. 计算精确位置
+    // ✅ 策略 2：忽略空格差异进行匹配
+    const normalizedPattern = pattern.replace(/\s+/g, ' ');
+    const normalizedLine = line.replace(/\s+/g, ' ');
+    const normalizedIndex = normalizedLine.indexOf(normalizedPattern);
+    
+    if (normalizedIndex !== -1) {
+      console.log('[PositionFinder] Trying normalized matching...');
+      // 需要映射回原始字符串的位置
+      const mappedPosition = this.mapNormalizedToOriginal(line, normalizedLine, normalizedIndex, context);
+      if (mappedPosition) {
+        console.log('[PositionFinder] ✅ Found by normalized match');
+        return mappedPosition;
+      }
+    }
+    
+    // ✅ 策略 3：只用 before 定位（忽略 after）
+    if (context.before && context.before.length >= 3) {
+      const beforeIndex = line.indexOf(context.before);
+      if (beforeIndex !== -1) {
+        const targetStart = beforeIndex + context.before.length;
+        const startColumn = targetStart + 1;
+        const endColumn = startColumn + context.target.length;
+        
+        // 验证
+        if (context.target === '' || line.substring(targetStart, targetStart + context.target.length) === context.target) {
+          console.log('[PositionFinder] ✅ Found by before-only match');
+          return { startColumn, endColumn };
+        }
+      }
+    }
+    
+    // ✅ 策略 4：只用 target 查找（最后降级）
+    console.warn('[PositionFinder] All strategies failed, trying target only', {
+      pattern: pattern.substring(0, 50),
+      line: line.substring(0, 100) + (line.length > 100 ? '...' : ''),
+    });
+    
+    return this.findByTargetOnly(line, context.target);
+  }
+  
+  /**
+   * 根据匹配索引构建位置信息
+   */
+  private static buildPosition(line: string, index: number, context: Context): Position | null {
     const startColumn = index + context.before.length + 1; // Monaco 列号从 1 开始
     const endColumn = startColumn + context.target.length;
     
-    // 4. 验证
+    // 验证
     const extracted = line.substring(startColumn - 1, endColumn - 1);
     if (extracted !== context.target) {
       console.error('[PositionFinder] Validation failed', {
         extracted,
         expected: context.target,
-        line: line.substring(0, 100) + (line.length > 100 ? '...' : ''),
-        context,
-        startColumn,
-        endColumn,
       });
       return null;
     }
     
-    console.log('[PositionFinder] ✅ Found by context', {
-      startColumn,
-      endColumn,
-      target: context.target,
-      extracted,
-    });
-    
     return { startColumn, endColumn };
+  }
+  
+  /**
+   * 将规范化字符串的位置映射回原始字符串
+   */
+  private static mapNormalizedToOriginal(
+    original: string,
+    normalized: string,
+    normalizedIndex: number,
+    context: Context
+  ): Position | null {
+    // 计算规范化字符串到原始字符串的位置映射
+    let originalIndex = 0;
+    let normalizedPos = 0;
+    
+    while (normalizedPos < normalizedIndex && originalIndex < original.length) {
+      if (/\s/.test(original[originalIndex])) {
+        // 跳过连续空格（在规范化中只算一个）
+        while (originalIndex < original.length - 1 && /\s/.test(original[originalIndex + 1])) {
+          originalIndex++;
+        }
+      }
+      originalIndex++;
+      normalizedPos++;
+    }
+    
+    // 尝试在原始位置构建 position
+    const startColumn = originalIndex + context.before.length + 1;
+    const endColumn = startColumn + context.target.length;
+    
+    // 验证（对于空 target 跳过验证）
+    if (context.target === '') {
+      return { startColumn, endColumn };
+    }
+    
+    const extracted = original.substring(startColumn - 1, endColumn - 1);
+    if (extracted === context.target) {
+      return { startColumn, endColumn };
+    }
+    
+    return null;
   }
   
   /**
