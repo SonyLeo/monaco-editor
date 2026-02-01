@@ -20,42 +20,78 @@
 | **模型** | DeepSeek-Coder (Fill-In-Middle) | DeepSeek-Chat/Reasoner |
 | **延迟** | < 300ms | 1.5s - 3s |
 
-## 📂 项目结构详解
+## 📂 项目结构与架构设计
 
-基于 **Coordinator Pattern** 和 **Manager-based** 架构，职责界限分明。
+我们采用分层架构 (Layered Architecture) 来组织代码，确保指责分明，依赖方向单向流动。
+
+### 目录结构
 
 ```text
-monaco-editor-nes/
+monaco-editor-ai/
 ├── src/
-│   ├── core/                        # 🧠 [核心] 业务逻辑层
-│   │   ├── engines/                 #    引擎层：处理状态与数据
-│   │   │   ├── NESController.ts     #    [总协调器] 管理 NES 生命周期与状态流转
-│   │   │   ├── SuggestionQueue.ts   #    [队列] 管理多条预测建议的顺序与导航
-│   │   │   ├── EditHistoryManager.ts#    [历史] 追踪用户编辑操作，为 AI 提供上下文
-│   │   │   └── PredictionService.ts #    [服务] 封装与后端 API 的通信
-│   │   │
-│   │   └── renderer/                # 🎨 [渲染层] UI 呈现 (Manager 模式)
-│   │       ├── NESRenderer.ts       #    [渲染协调器] 统一对外暴露渲染 API
-│   │       ├── DiffEditorManager.ts #    [组件] 管理内嵌的 Monaco DiffEditor 实例
-│   │       ├── ViewZoneManager.ts   #    [容器] 管理代码行间的 DOM 插入区域
-│   │       ├── DecorationManager.ts #    [装饰] 管理行号旁的 Glyph 图标与高亮
-│   │       └── styles/              #    样式资源隔离
+│   ├── index.ts                   # 🚪 主入口
+│   ├── config.ts                  # ⚙️ 全局配置
 │   │
-│   ├── components/                  # 🧩 Vue 组件层
-│   │   └── NesEditor.vue            #    编辑器入口组件
+│   ├── engines/                   # 🧠 [核心业务层] 协调各模块流程
+│   │   ├── FIMEngine.ts           #    FIM 实时补全引擎
+│   │   └── NESEngine.ts           #    NES 下一步编辑预测引擎
 │   │
-│   ├── e2e/                         # 🤖 E2E 测试 (Playwright)
-│   └── test/                        # 🧪 单元测试 (Vitest)
+│   ├── services/                  # 🛠️ [服务层] 状态管理与外部通信
+│   │   ├── PredictionService.ts   #    API 调用服务
+│   │   ├── EditHistoryManager.ts  #    编辑历史追踪
+│   │   ├── SuggestionQueue.ts     #    建议队列管理
+│   │   └── EditDispatcher.ts      #    事件分发
+│   │
+│   ├── analysis/                  # 🔍 [分析层] 代码理解
+│   │   ├── SymptomDetector.ts     #    编辑症状检测
+│   │   ├── TreeSitterAnalyzer.ts  #    AST 深度分析
+│   │   └── CodeParser.ts          #    基础代码解析
+│   │
+│   ├── rendering/                 # 🎨 [渲染层] UI 呈现
+│   │   ├── NESRenderer.ts         #    NES 渲染协调器
+│   │   ├── DecorationManager.ts   #    Monaco 装饰器管理
+│   │   ├── ViewZoneManager.ts     #    行间视图管理
+│   │   └── styles.css             #    组件样式
+│   │
+│   ├── utils/                     # 🧰 [工具层] 通用算法
+│   │   ├── CoordinateFixer.ts     #    坐标漂移修复
+│   │   ├── PositionFinder.ts      #    智能位置查找
+│   │   ├── DiffCalculator.ts      #    文本差异计算
+│   │   └── TabKeyHandler.ts       #    按键拦截处理
+│   │
+│   └── types/                     # 📝 类型定义
 │
-├── server/                          # 🔌 后端服务层
-│   ├── server.mjs                   #    Node.js 代理服务器
-│   ├── prompts/                     #    Prompt 工程化模板
-│   └── utils/                       #    后端工具链 (JSON 解析、格式化)
-│
-└── docs/                            # 📚 文档中心
-    ├── design/                      #    技术设计文档
-    └── refactor/                    #    重构历程记录
+├── server/                        # 🔌 后端服务
+└── docs/                          # 📚 文档中心
 ```
+
+### 架构分层与依赖原则
+
+我们遵循 **严格的单向依赖原则**，上层可以依赖下层，下层不可依赖上层。
+
+| 层级 | 职责 | 依赖方向 |
+|------|------|----------|
+| **engines/** | 核心业务流程，协调各层 | 依赖 `services`, `analysis`, `rendering` |
+| **services/** | 状态管理、API 调用 | 依赖 `utils`, `types` |
+| **analysis/** | 代码分析、数据准备 | 依赖 `utils`, `types` |
+| **rendering/** | UI 渲染、视觉展示 | 依赖 `utils`, `types` |
+| **utils/** | 纯函数、通用算法 | 只依赖 `types` |
+| **types/** | 类型定义 | 无依赖 |
+
+```mermaid
+graph TD
+    Engines[engines/] --> Services[services/]
+    Engines --> Analysis[analysis/]
+    Engines --> Rendering[rendering/]
+    
+    Services --> Utils[utils/]
+    Analysis --> Utils
+    Rendering --> Utils
+    
+    Utils --> Types[types/]
+```
+
+---
 
 ## ✨ 关键特性
 
@@ -79,7 +115,12 @@ monaco-editor-nes/
 | `Alt + N` | **跳过**当前建议，查看下一个候选 | NES (多建议时) |
 | `Esc` | **取消/关闭**当前建议窗口 | 全局 |
 
-## 📦 快速开始
+## 📦 快速集成
+
+已有项目想要接入 AI 能力？请查看详细的 **[集成指南 (Integration Guide)](docs/INTEGRATION.md)**。
+
+## 🚀 开发运行
+
 
 ### 前置要求
 - Node.js > 18
@@ -98,7 +139,7 @@ DEEPSEEK_API_KEY=sk-your-key-here
 
 ### 3. 启动全栈开发环境
 ```bash
-pnpm start
+pnpm dev
 ```
 > 这会自动启动前端 (Vite) 和后端 (Node) 服务。
 

@@ -1,13 +1,54 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>monaco-editor</title>
+    <title>AI Code Assistant</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        margin: 0;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+      }
+      h1 {
+        font-size: 3rem;
+        margin-bottom: 1rem;
+      }
+      p {
+        font-size: 1.2rem;
+        margin-bottom: 2rem;
+      }
+      .links {
+        display: flex;
+        gap: 1rem;
+      }
+      a {
+        padding: 1rem 2rem;
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 8px;
+        color: white;
+        text-decoration: none;
+        font-weight: 600;
+        transition: all 0.3s;
+      }
+      a:hover {
+        background: rgba(255, 255, 255, 0.3);
+        transform: translateY(-2px);
+      }
+    </style>
   </head>
   <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.ts"></script>
+    <h1>馃 AI Code Assistant</h1>
+    <p>Choose a demo to get started</p>
+    <div class="links">
+      <a href="/src/examples/vue-demo/index.html">Vue 3 Demo</a>
+      <a href="/docs/QUICK_START.md">Quick Start Guide</a>
+    </div>
   </body>
 </html>
