@@ -16,10 +16,7 @@ export class FIMEngine {
   private lastGhostTextContent = '';
   private ghostTextDecisionCallbacks: Array<() => void> = [];
 
-  constructor(
-    private editor: monaco.editor.IStandaloneCodeEditor,
-    endpoint: string
-  ) {
+  constructor(endpoint: string) {
     this.predictionService = new PredictionService(endpoint);
   }
 
@@ -100,7 +97,7 @@ export class FIMEngine {
    */
   lock(): void {
     this.fimLocked = true;
-    this.clearGhostText();
+    // Ghost Text 由 Monaco 自然管理，不需要手动清除
   }
 
   /**
@@ -110,50 +107,7 @@ export class FIMEngine {
     this.fimLocked = false;
   }
 
-  /**
-   * 清除 Ghost Text（强制）
-   */
-  private clearGhostText(): void {
-    try {
-      // 方法 1: 触发 Escape 键事件（最可靠）
-      this.editor.trigger('keyboard', 'cancelSelection', {});
-      
-      // 方法 2: 插入空字符再删除，强制刷新
-      const position = this.editor.getPosition();
-      if (position) {
-        const model = this.editor.getModel();
-        if (model) {
-          // 插入空格
-          model.pushEditOperations(
-            [],
-            [{
-              range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column),
-              text: ' '
-            }],
-            () => null
-          );
-          
-          // 立即删除空格
-          setTimeout(() => {
-            const newPos = this.editor.getPosition();
-            if (newPos && model) {
-              model.pushEditOperations(
-                [],
-                [{
-                  range: new monaco.Range(newPos.lineNumber, newPos.column - 1, newPos.lineNumber, newPos.column),
-                  text: ''
-                }],
-                () => null
-              );
-            }
-          }, 0);
-        }
-      }
 
-    } catch (error) {
-      logger.error('[FIMEngine] Failed to clear Ghost Text:', error);
-    }
-  }
 
   /**
    *  检查是否有 Ghost Text 显示

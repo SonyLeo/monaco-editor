@@ -48,7 +48,7 @@ export function initAICodeAssistant(
   // 初始化 FIM 引擎
   let fimEngine: FIMEngine | null = null;
   if (finalConfig.fim?.enabled && finalConfig.fim.endpoint) {
-    fimEngine = new FIMEngine(editor, finalConfig.fim.endpoint);
+    fimEngine = new FIMEngine(finalConfig.fim.endpoint);
     fimEngine.register();
   }
 
@@ -176,34 +176,18 @@ export function initAICodeAssistant(
     });
   }
 
-  //  Tab 键智能路由
+  // 快捷键处理
   if (nesEngine) {
-    // Tab - 智能行为：
-    // 优先级 1：FIM Ghost Text（默认行为，不拦截）
-    // 优先级 2：NES 建议（拦截并处理）
-    // 优先级 3：默认缩进（不拦截）
+    // Tab - 只在 NES 激活时拦截，否则让 Monaco 处理（FIM、智能提示等）
     editor.onKeyDown((e) => {
       if (e.keyCode === monaco.KeyCode.Tab) {
-        // ✅ 优先级 1：FIM Ghost Text 优先
-        if (fimEngine && fimEngine.hasGhostText()) {
-          // 不阻止默认行为，让 Monaco 处理 FIM 接受
-          return;
-        }
-
-        // ✅ 优先级 2：NES 建议
-        if (nesEngine!.isActive()) {
+        // 只有在 NES 激活且没有 FIM Ghost Text 时才拦截
+        if (nesEngine!.isActive() && !(fimEngine && fimEngine.hasGhostText())) {
           e.preventDefault();
           e.stopPropagation();
-          
-          // 检查预览是否已展开
-          if (nesEngine!.isPreviewShown()) {
-            // 预览已展开 → 接受建议
-            nesEngine!.acceptSuggestion();
-          } else {
-            // 预览未展开 → 展开预览
-            nesEngine!.togglePreview();
-          }
+          nesEngine!.acceptSuggestion();
         }
+        // 否则不拦截，让 Monaco 自然处理
       }
     });
 
@@ -214,16 +198,29 @@ export function initAICodeAssistant(
       }
     });
 
-    // Esc - 完全关闭 NES
-    editor.addCommand(monaco.KeyCode.Escape, () => {
-      if (nesEngine!.isActive()) {
-        nesEngine!.closeCompletely();
-        
-        // 解锁 FIM
-        dispatcher.setNESActive(false);
-        if (fimEngine) {
-          fimEngine.unlock();
+    // Esc - 智能处理：有 FIM 时关闭 FIM，NES 激活时关闭 NES
+    editor.onKeyDown((e) => {
+      if (e.keyCode === monaco.KeyCode.Escape) {
+        // 优先级 1：如果有 FIM Ghost Text，让 Monaco 处理（不拦截）
+        if (fimEngine && fimEngine.hasGhostText()) {
+          // 不阻止，让 Monaco 关闭 Ghost Text
+          return;
         }
+
+        // 优先级 2：如果 NES 激活，关闭 NES
+        if (nesEngine!.isActive()) {
+          e.preventDefault();
+          e.stopPropagation();
+          nesEngine!.closeCompletely();
+          
+          // 解锁 FIM
+          dispatcher.setNESActive(false);
+          if (fimEngine) {
+            fimEngine.unlock();
+          }
+          logger.debug('[AICodeAssistant] NES closed by Esc, FIM unlocked');
+        }
+        // 否则让 Monaco 处理默认行为
       }
     });
   }

@@ -241,11 +241,8 @@ editor.onKeyDown((e) => {
       e.stopPropagation();
       console.log('[AICodeAssistant] Tab → NES');
       
-      if (nesEngine.isPreviewShown()) {
-        nesEngine.acceptSuggestion();
-      } else {
-        nesEngine.togglePreview();
-      }
+      // 新交互模式：预览总是自动展开，直接 Accept
+      nesEngine.acceptSuggestion();
       return;
     }
 

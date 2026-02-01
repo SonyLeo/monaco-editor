@@ -1,474 +1,437 @@
 /**
- * NES Few-Shot 示例库
- * 每种模式提供 1-2 个高质量示例
+ * NES Few-Shot Examples - Optimized Version
+ * 
+ * Best Practices Applied:
+ * 1. High-Quality Examples - Real-world scenarios
+ * 2. Complete Input/Output - Full context for each example
+ * 3. Diverse ChangeTypes - Coverage of all types
+ * 4. Error Avoidance - Examples of common mistakes
  */
 
 /**
- * NES 完整示例（用于文档和测试）
+ * Complete few-shot example showing full input/output format
  */
 export const NES_FULL_EXAMPLE = `
-user:
+<example_input>
 <edit_history>
 [1] 10:30:15 | Line 5:10
-   Action: replace
-   Old: "createUser"
-   New: "createUser123"
-   Context: functionName
-   Line: function createUser123(name: string) {
+    Action: 🔄 replace
+    Old: "createUser"
+    New: "createUserInfo"
+    Context: 📦 Function Name
+    Full Line: function createUserInfo(name: string) {
 </edit_history>
+
 <recent_change>
-Renamed function 'createUser' to 'createUser123'
+Function 'createUser' renamed to 'createUserInfo'
+
+Semantic Context: User modified a function name
+  From: "createUser"
+  To: "createUserInfo"
+  
+Consider: What other locations might reference this function name?
 </recent_change>
+
 <code_window>
-5: function createUser123(name: string) {
-6:   return { name };
-7: }
-8:
-9: const user1 = createUser("Alice");
+ 5: function createUserInfo(name: string) {
+ 6:   return { name };
+ 7: }
+ 8:
+ 9: const user1 = createUser("Alice");
 10: const user2 = createUser("Bob");
 11: const user3 = createUser("Charlie");
 </code_window>
+</example_input>
 
-assistant:
+<example_output>
 {
-  "analysis": {
-    "change_type": "renameFunction",
-    "summary": "Function 'createUser' renamed to 'createUser123'",
-    "impact": "Need to update all 3 function calls to use the new name",
-    "pattern": "Function rename - all usages must be updated"
+  "reasoning": {
+    "observed_change": "Function 'createUser' was renamed to 'createUserInfo' at line 5",
+    "pattern_detected": "Function rename - requires updating all call sites",
+    "impact_analysis": "Found 3 call sites at lines 9, 10, 11 that still use the old name",
+    "confidence_rationale": "High confidence (0.95) because these are direct function calls with exact name match"
   },
   "predictions": [
     {
       "targetLine": 9,
       "originalLineContent": "const user1 = createUser(\\"Alice\\");",
-      "suggestionText": "const user1 = createUser123(\\"Alice\\");",
+      "suggestionText": "const user1 = createUserInfo(\\"Alice\\");",
       "explanation": "Update function call to match renamed function",
       "confidence": 0.95,
       "priority": 1,
-      "changeType": "REPLACE_LINE"
+      "changeType": "REPLACE_WORD",
+      "context": {
+        "before": "= ",
+        "target": "createUser",
+        "after": "(\\"Alice\\")"
+      }
     },
     {
       "targetLine": 10,
       "originalLineContent": "const user2 = createUser(\\"Bob\\");",
-      "suggestionText": "const user2 = createUser123(\\"Bob\\");",
+      "suggestionText": "const user2 = createUserInfo(\\"Bob\\");",
       "explanation": "Update function call to match renamed function",
       "confidence": 0.95,
       "priority": 1,
-      "changeType": "REPLACE_LINE"
+      "changeType": "REPLACE_WORD",
+      "context": {
+        "before": "= ",
+        "target": "createUser",
+        "after": "(\\"Bob\\")"
+      }
     },
     {
       "targetLine": 11,
       "originalLineContent": "const user3 = createUser(\\"Charlie\\");",
-      "suggestionText": "const user3 = createUser123(\\"Charlie\\");",
+      "suggestionText": "const user3 = createUserInfo(\\"Charlie\\");",
       "explanation": "Update function call to match renamed function",
       "confidence": 0.95,
       "priority": 1,
-      "changeType": "REPLACE_LINE"
+      "changeType": "REPLACE_WORD",
+      "context": {
+        "before": "= ",
+        "target": "createUser",
+        "after": "(\\"Charlie\\")"
+      }
     }
   ]
-}`;
-
-/**
- * 🆕 changeType 示例（用于训练模型正确分类）
- */
-export const CHANGE_TYPE_EXAMPLES = `
-### Example 1: REPLACE_LINE (Logic Error)
-<code>
-function findMax(a: number, b: number): number {
-  return a > b ? b : a;  // ❌ Wrong logic
 }
-</code>
-
-<prediction>
-{
-  "targetLine": 2,
-  "originalLineContent": "  return a > b ? b : a;",
-  "suggestionText": "  return a > b ? a : b;",
-  "explanation": "Fix logic error: should return a when a > b",
-  "confidence": 0.95,
-  "priority": 1,
-  "changeType": "REPLACE_LINE"
-}
-</prediction>
-
----
-
-### Example 2: REPLACE_WORD (Keyword Typo)
-<code>
-funct ion greet(name: string): string {
-  return \`Hello, \${name}!\`;
-}
-</code>
-
-<prediction>
-{
-  "targetLine": 1,
-  "originalLineContent": "funct ion greet(name: string): string {",
-  "suggestionText": "function",
-  "explanation": "Fix keyword typo: 'funct ion' → 'function'",
-  "confidence": 0.98,
-  "priority": 1,
-  "changeType": "REPLACE_WORD",
-  "wordReplaceInfo": {
-    "word": "funct ion",
-    "replacement": "function",
-    "startColumn": 1,
-    "endColumn": 11
-  }
-}
-</prediction>
-
----
-
-### Example 3: REPLACE_WORD (Operator Error)
-<code>
-function isValid(value: string): boolean {
-  if (value !== null || value !== undefined) {
-    return true;
-  }
-  return false;
-}
-</code>
-
-<prediction>
-{
-  "targetLine": 2,
-  "originalLineContent": "  if (value !== null || value !== undefined) {",
-  "suggestionText": "&&",
-  "explanation": "Fix operator: '||' should be '&&'",
-  "confidence": 0.92,
-  "priority": 1,
-  "changeType": "REPLACE_WORD",
-  "wordReplaceInfo": {
-    "word": "||",
-    "replacement": "&&",
-    "startColumn": 22,
-    "endColumn": 24
-  }
-}
-</prediction>
-
----
-
-### Example 4: INSERT (Add Property)
-<code>
-class Point3D {
-  x: number;
-  y: number;
-  // Missing z property
-}
-</code>
-
-<prediction>
-{
-  "targetLine": 3,
-  "originalLineContent": "  y: number;",
-  "suggestionText": "  z: number;",
-  "explanation": "Add z property to match Point3D class name",
-  "confidence": 0.90,
-  "priority": 1,
-  "changeType": "INSERT"
-}
-</prediction>
-
----
-
-### Example 5: DELETE (Remove Unused Import)
-<code>
-import { ref } from 'vue';
-import { computed } from 'vue';  // ❌ Not used
-import { watch } from 'vue';
-
-const count = ref(0);
-</code>
-
-<prediction>
-{
-  "targetLine": 2,
-  "originalLineContent": "import { computed } from 'vue';",
-  "suggestionText": "",
-  "explanation": "Remove unused import: 'computed' is not used",
-  "confidence": 0.88,
-  "priority": 2,
-  "changeType": "DELETE"
-}
-</prediction>
-
----
-
-### Example 6: INLINE_INSERT (Extend Expression)
-<code>
-class Point3D {
-  x: number;
-  y: number;
-  z: number;
-  
-  getDistance() {
-    return Math.sqrt(this.x ** 2 + this.y ** 2);
-  }
-}
-</code>
-
-<prediction>
-{
-  "targetLine": 7,
-  "originalLineContent": "    return Math.sqrt(this.x ** 2 + this.y ** 2);",
-  "suggestionText": " + this.z ** 2",
-  "explanation": "Add z calculation to match Point3D",
-  "confidence": 0.93,
-  "priority": 1,
-  "changeType": "INLINE_INSERT",
-  "inlineInsertInfo": {
-    "content": " + this.z ** 2",
-    "insertColumn": 50
-  }
-}
-</prediction>
+</example_output>
 `;
 
 /**
- * 模式示例库
+ * ChangeType examples for inline reference in prompts
+ * These are concise examples showing correct usage of each changeType
+ */
+export const CHANGE_TYPE_EXAMPLES = `
+### REPLACE_WORD - Single Token Change
+
+Scenario: Fix typo or rename single identifier
+\`\`\`
+Before: functoin greet() {}
+After:  function greet() {}
+\`\`\`
+
+Prediction:
+{
+  "changeType": "REPLACE_WORD",
+  "originalLineContent": "functoin greet() {}",
+  "suggestionText": "function greet() {}",
+  "context": { "before": "", "target": "functoin", "after": " greet()" }
+}
+
+---
+
+### REPLACE_WORD - Operator Fix
+
+Scenario: Fix wrong operator
+\`\`\`
+Before: if (value !== null || value !== undefined)
+After:  if (value !== null && value !== undefined)
+\`\`\`
+
+Prediction:
+{
+  "changeType": "REPLACE_WORD",
+  "originalLineContent": "  if (value !== null || value !== undefined) {",
+  "suggestionText": "  if (value !== null && value !== undefined) {",
+  "context": { "before": "null ", "target": "||", "after": " value" }
+}
+
+---
+
+### INLINE_INSERT - Add Parameter
+
+Scenario: Add argument to function call
+\`\`\`
+Before: createUser("Bob")
+After:  createUser("Bob", 30)
+\`\`\`
+
+Prediction:
+{
+  "changeType": "INLINE_INSERT",
+  "originalLineContent": "const user = createUser(\\"Bob\\");",
+  "suggestionText": "const user = createUser(\\"Bob\\", 30);",
+  "context": { "before": "(\\"Bob\\"", "target": "", "after": ");" }
+}
+
+---
+
+### INLINE_INSERT - Extend Expression
+
+Scenario: Add term to calculation
+\`\`\`
+Before: Math.sqrt(x**2 + y**2)
+After:  Math.sqrt(x**2 + y**2 + z**2)
+\`\`\`
+
+Prediction:
+{
+  "changeType": "INLINE_INSERT",
+  "originalLineContent": "    return Math.sqrt(x**2 + y**2);",
+  "suggestionText": "    return Math.sqrt(x**2 + y**2 + z**2);",
+  "context": { "before": "y**2", "target": "", "after": ");" }
+}
+
+---
+
+### REPLACE_LINE - Logic Change
+
+Scenario: Fix conditional logic (multiple changes)
+\`\`\`
+Before: return a > b ? b : a;
+After:  return a > b ? a : b;
+\`\`\`
+
+Prediction:
+{
+  "changeType": "REPLACE_LINE",
+  "originalLineContent": "  return a > b ? b : a;",
+  "suggestionText": "  return a > b ? a : b;"
+}
+
+---
+
+### INSERT - Add New Line
+
+Scenario: Add missing property
+\`\`\`
+class Point3D {
+  x: number;
+  y: number;
+  // INSERT z here
+}
+\`\`\`
+
+Prediction:
+{
+  "changeType": "INSERT",
+  "targetLine": 3,  // After y: number;
+  "originalLineContent": "  y: number;",
+  "suggestionText": "  z: number;"
+}
+
+---
+
+### DELETE - Remove Unused Code
+
+Scenario: Remove unused import
+\`\`\`
+import { ref } from 'vue';
+import { computed } from 'vue';  // ← Not used, DELETE
+\`\`\`
+
+Prediction:
+{
+  "changeType": "DELETE",
+  "originalLineContent": "import { computed } from 'vue';",
+  "suggestionText": ""
+}
+`;
+
+/**
+ * Pattern-specific example library
+ * Used for detailed few-shot learning when a specific pattern is detected
  */
 export const PATTERN_EXAMPLES = {
-  add_field: `Example: Adding field to TypeScript class
-
-<edit_history>
-[1] Line 5: insert "public z: number"
-</edit_history>
-
-<detected_pattern>
-Type: add_field
-Context: Added field 'z' to class Point3D
-</detected_pattern>
-
-<current_code>
-class Point3D {
-  constructor(public x: number, public y: number) {}
   
-  public z: number;  // ← Just added
+  add_field: `### Pattern: Adding Field to Class
+
+<input>
+User added \`z: number\` property to Point3D class.
+
+class Point3D {
+  x: number;
+  y: number;
+  z: number;  // ← Just added
+  
+  constructor(public x: number, public y: number) {}
   
   toString(): string {
     return \`(\${this.x}, \${this.y})\`;
   }
 }
-</current_code>
+</input>
 
 <reasoning>
-1. Developer added a new field 'z' to Point3D class
-2. The constructor currently only has x and y parameters
-3. Logical next step: add 'z' to constructor parameters
-4. Location: Line 2, after 'public y: number'
+1. New field 'z' added to class
+2. Constructor only has x, y - needs z parameter
+3. toString() only includes x, y - needs z
+4. Priority: constructor (essential) > toString (formatting)
 </reasoning>
 
-<prediction>
-{
-  "line": 2,
-  "column": 50,
-  "action": "insert",
-  "newText": ", public z: number",
-  "reason": "Add z parameter to constructor to match new field",
-  "confidence": 0.92
-}
-</prediction>`,
+<predictions>
+1. Line with constructor:
+   - changeType: INLINE_INSERT
+   - Add \`, public z: number\` to constructor params
+   
+2. Line with toString return:
+   - changeType: REPLACE_LINE
+   - Update template to include z
+</predictions>`,
 
-  add_parameter: `Example: Adding parameter to function
+  add_parameter: `### Pattern: Adding Parameter to Function
 
-<edit_history>
-[1] Line 10: replace "function calculate(a, b)" → "function calculate(a, b, c)"
-</edit_history>
+<input>
+User added parameter 'age' to createUser function.
 
-<detected_pattern>
-Type: add_parameter
-Context: Added parameter 'c' to calculate function
-</detected_pattern>
-
-<current_code>
-function calculate(a, b, c) {  // ← Just modified
-  return a + b;
+function createUser(name: string, age: number) {  // ← Added age
+  return { name, age };
 }
 
-function main() {
-  const result1 = calculate(1, 2);
-  const result2 = calculate(5, 10);
-}
-</current_code>
+const user1 = createUser("Alice");
+const user2 = createUser("Bob");
+</input>
 
 <reasoning>
-1. Developer added parameter 'c' to calculate function
-2. Found 2 call sites at lines 6 and 7
-3. Need to provide default value for 'c'
+1. Function signature now requires 'age' parameter
+2. Found 2 call sites missing the new parameter
+3. Need to provide reasonable default (number type → 0 or 18)
 </reasoning>
 
-<prediction>
-{
-  "line": 6,
-  "column": 32,
-  "action": "replace",
-  "oldText": "calculate(1, 2)",
-  "newText": "calculate(1, 2, 0)",
-  "reason": "Update first call site to include new parameter c",
-  "confidence": 0.88
-}
-</prediction>`,
+<predictions>
+1. Line 5 (first call):
+   - changeType: INLINE_INSERT
+   - Add \`, 18\` (reasonable default age)
+   
+2. Line 6 (second call):
+   - changeType: INLINE_INSERT  
+   - Add \`, 18\`
+</predictions>`,
 
-  rename: `Example: Renaming variable
+  rename: `### Pattern: Renaming Symbol
 
-<edit_history>
-[1] Line 5: replace "oldName" → "newName"
-[2] Line 8: replace "oldName" → "newName"
-</edit_history>
+<input>
+User renamed variable 'data' to 'userData' on line 2.
 
-<detected_pattern>
-Type: rename
-Context: Renaming 'oldName' to 'newName'
-</detected_pattern>
-
-<current_code>
 function process() {
-  const newName = getData();  // ← Renamed
+  const userData = fetchData();  // ← Renamed from 'data'
   
-  if (newName) {
-    console.log(newName);  // ← Renamed
-    return oldName.toUpperCase();  // ← Not renamed yet
+  if (data) {
+    console.log(data.name);
+    return data;
   }
 }
-</current_code>
+</input>
 
 <reasoning>
-1. Developer is renaming 'oldName' to 'newName'
-2. Already renamed 2 occurrences
-3. Found 1 more occurrence at line 6
+1. Variable renamed from 'data' to 'userData'
+2. Found 3 occurrences of old name 'data' (lines 4, 5, 6)
+3. All in same function scope → high confidence
+4. Must preserve string literals that aren't identifiers
 </reasoning>
 
-<prediction>
-{
-  "line": 6,
-  "column": 12,
-  "action": "replace",
-  "oldText": "oldName",
-  "newText": "newName",
-  "reason": "Continue renaming remaining occurrence",
-  "confidence": 0.96
+<predictions>
+1. Line 4 (if condition):
+   - changeType: REPLACE_WORD
+   - context: { before: "if (", target: "data", after: ") {" }
+   
+2. Line 5 (property access):
+   - changeType: REPLACE_WORD
+   - context: { before: "log(", target: "data", after: ".name" }
+   
+3. Line 6 (return statement):
+   - changeType: REPLACE_WORD
+   - context: { before: "return ", target: "data", after: ";" }
+</predictions>`,
+
+  fix: `### Pattern: Fixing Error
+
+<input>
+User fixed typo 'conts' → 'const' on line 2.
+
+function test() {
+  const x = 5;  // ← Just fixed
+  conts y = 10;
+  conts z = 15;
 }
-</prediction>`,
+</input>
 
-  refactor: `Example: Refactoring method calls
+<reasoning>
+1. Typo 'conts' was fixed to 'const'
+2. Found 2 more instances of same typo (lines 3, 4)
+3. Same file, similar context → high confidence
+</reasoning>
 
-<edit_history>
-[1] Line 10: replace "user.getName()" → "user.getFullName()"
-</edit_history>
+<predictions>
+1. Line 3:
+   - changeType: REPLACE_WORD
+   - target: "conts" → "const"
+   
+2. Line 4:
+   - changeType: REPLACE_WORD
+   - target: "conts" → "const"
+</predictions>`,
 
-<detected_pattern>
-Type: refactor
-Context: Changing method name from getName to getFullName
-</detected_pattern>
+  refactor: `### Pattern: Code Refactoring
 
-<current_code>
+<input>
+User changed user.getName() to user.getFullName() on line 3.
+
 class UserService {
   displayUser(user) {
-    console.log(user.getFullName());  // ← Just changed
+    console.log(user.getFullName());  // ← Changed
   }
   
   printUser(user) {
     console.log(user.getName());  // ← Not changed yet
   }
 }
-</current_code>
+</input>
 
 <reasoning>
-1. Developer changed getName() to getFullName()
-2. Found 1 more occurrence at line 7
+1. Method call refactored: getName() → getFullName()
+2. Found 1 more occurrence of old method (line 7)
+3. Same method pattern in same class
 </reasoning>
 
-<prediction>
-{
-  "line": 7,
-  "column": 18,
-  "action": "replace",
-  "oldText": "user.getName()",
-  "newText": "user.getFullName()",
-  "reason": "Continue refactoring method name",
-  "confidence": 0.90
-}
-</prediction>`,
+<predictions>
+1. Line 7:
+   - changeType: REPLACE_WORD
+   - context: { before: "user.", target: "getName", after: "()" }
+   - suggestionText: includes "getFullName"
+</predictions>`,
 
-  fix: `Example: Fixing typo
+  general: `### Pattern: General Editing
 
-<edit_history>
-[1] Line 5: replace "conts" → "const"
-</edit_history>
+<input>
+User is adding variable declarations.
 
-<detected_pattern>
-Type: fix
-Context: Fixing typo 'conts' → 'const'
-</detected_pattern>
-
-<current_code>
-function test() {
-  const x = 5;  // ← Just fixed
-  conts y = 10;  // ← Same typo
-}
-</current_code>
-
-<reasoning>
-1. Developer fixed typo 'conts' to 'const'
-2. Found same typo at line 3
-</reasoning>
-
-<prediction>
-{
-  "line": 3,
-  "column": 3,
-  "action": "replace",
-  "oldText": "conts",
-  "newText": "const",
-  "reason": "Fix same typo in nearby code",
-  "confidence": 0.94
-}
-</prediction>`,
-
-  general: `Example: General code editing
-
-<edit_history>
-[1] Line 5: insert "const x = 10;"
-[2] Line 6: insert "const y = 20;"
-</edit_history>
-
-<detected_pattern>
-Type: general
-Context: General code editing pattern detected
-</detected_pattern>
-
-<current_code>
 function calculate() {
   const x = 10;
   const y = 20;
-  
+  // Cursor here
 }
-</current_code>
+</input>
 
 <reasoning>
-1. Developer is adding variable declarations
-2. Logical next step: use these variables
+1. User added two numeric variables x and y
+2. Pattern suggests calculation will follow
+3. Logical next step: use these variables
 </reasoning>
 
-<prediction>
-{
-  "line": 4,
-  "column": 3,
-  "action": "insert",
-  "newText": "return x + y;",
-  "reason": "Add calculation using declared variables",
-  "confidence": 0.70
-}
-</prediction>`,
+<predictions>
+1. After line 3:
+   - changeType: INSERT
+   - suggestionText: "  return x + y;"
+   - Lower confidence (0.75) - pattern is suggestive not definitive
+</predictions>`,
 };
 
 /**
- * 获取指定模式的 Few-shot 示例
- * @param {string} patternType - 模式类型
- * @returns {string} 示例文本
+ * Get few-shot examples for a specific pattern
+ * @param {string} patternType - Pattern type
+ * @returns {string} Example text
  */
 export function getFewShotExamples(patternType) {
-  return PATTERN_EXAMPLES[patternType] || '';
+  return PATTERN_EXAMPLES[patternType] || PATTERN_EXAMPLES.general;
+}
+
+/**
+ * Get all available pattern types
+ * @returns {string[]} Array of pattern types
+ */
+export function getAvailablePatterns() {
+  return Object.keys(PATTERN_EXAMPLES);
 }

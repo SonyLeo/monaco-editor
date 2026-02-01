@@ -1,65 +1,139 @@
 /**
- * FIM 代码补全指令模板
+ * FIM User Prompt Instructions - Optimized Version
+ * 
+ * Best Practices Applied:
+ * 1. Template Functions - Reusable prompt generation
+ * 2. Context Injection - Dynamic content based on file type
+ * 3. Clear Delimiters - Structured input sections
+ * 4. Specific Instructions - Task-specific guidance
  */
 
 /**
- * 代码补全指令模板
- * @param {string} language - 编程语言
- * @returns {string} 指令文本
+ * Code completion instruction generator
+ * @param {string} language - Programming language
+ * @param {Object} options - Additional options
+ * @returns {string} Instruction text
  */
-export function createCodeInstruction(language) {
-  return `Complete the code after the cursor position.
+export function createCodeInstruction(language, options = {}) {
+  const { isTypeScript = false, hasJSDoc = false } = options;
+  
+  let instruction = `Complete the ${language} code at [CURSOR].
 
-Rules:
-1. Follow ${language} best practices and modern ES6+ syntax
-2. Match the existing code style exactly (indentation, quotes, semicolons)
-3. Generate only the necessary code to complete the current statement or block
-4. Ensure proper indentation and formatting
-5. DO NOT include explanatory comments unless they were already in the pattern
-6. If completing a function, include the full implementation
-7. For TypeScript, include proper type annotations
-8. Return ONLY the completion code, no additional text
-9. CRITICAL: Only complete code within the current function/scope
-10. DO NOT generate variables or code from other functions in the file`;
+Requirements:
+- Follow ${language} best practices and modern syntax${isTypeScript ? ' (ES2020+)' : ' (ES6+)'}
+- Match the existing code style exactly
+- Generate only the code needed to complete the current statement/block
+- Return ONLY the completion, no explanations`;
+
+  if (isTypeScript) {
+    instruction += `
+- Include proper TypeScript type annotations
+- Ensure type safety`;
+  }
+
+  if (hasJSDoc) {
+    instruction += `
+- Preserve and complete any JSDoc comments`;
+  }
+
+  return instruction;
 }
 
 /**
- * 块注释补全指令（JSDoc）
+ * Block comment (JSDoc) completion instruction
  */
-export const BLOCK_COMMENT_INSTRUCTION = `You are writing a JSDoc documentation comment. Complete the comment with clear, concise explanation.
+export const BLOCK_COMMENT_INSTRUCTION = `Complete the JSDoc documentation comment.
 
-Focus on:
-- Describing what the code does
-- Explaining parameters with @param tags
-- Documenting return values with @returns tag
-- Adding usage examples with @example if appropriate
-- Including type information for TypeScript
+Requirements:
+1. Describe WHAT the code does (purpose, not implementation)
+2. Document parameters with @param tags including types
+3. Document return value with @returns tag
+4. Add @throws if the function can throw
+5. Include @example if usage isn't obvious
 
-DO NOT generate code. Only complete the comment text.`;
+Format:
+- Use proper JSDoc syntax
+- Keep descriptions concise but complete
+- Type annotations should match TypeScript conventions
+
+Output ONLY the comment content. Do NOT generate code.`;
 
 /**
- * 行注释补全指令
+ * Line comment completion instruction
  */
-export const LINE_COMMENT_INSTRUCTION = `You are writing an inline comment. Complete the comment with a brief, clear explanation.
+export const LINE_COMMENT_INSTRUCTION = `Complete the inline comment.
 
-Focus on:
-- Explaining WHY this code exists, not WHAT it does
-- Keep it concise and on a single line
-- Use clear, professional language
+Requirements:
+1. Explain WHY this code exists, not WHAT it does
+2. Keep it concise (single line)
+3. Use clear, professional language
+4. Add value - don't state the obvious
 
-DO NOT generate code. Only complete the comment text.`;
+Output ONLY the comment text. Do NOT generate code.`;
 
 /**
- * 用户 Prompt 模板
- * @param {string} instruction - 指令文本
- * @param {string} fileContent - 文件内容（包含 [CURSOR] 标记）
- * @returns {string} 完整的用户 Prompt
+ * User prompt builder
+ * @param {string} instruction - Task instruction
+ * @param {string} fileContent - File content with [CURSOR] marker
+ * @param {Object} metadata - Optional file metadata
+ * @returns {string} Complete user prompt
  */
-export function createUserPrompt(instruction, fileContent) {
-  return `${instruction}
+export function createUserPrompt(instruction, fileContent, metadata = {}) {
+  const { filename, language, currentScope } = metadata;
+  
+  let prompt = '';
+  
+  // Add metadata section if available
+  if (filename || language || currentScope) {
+    prompt += '<file_metadata>\n';
+    if (filename) prompt += `Filename: ${filename}\n`;
+    if (language) prompt += `Language: ${language}\n`;
+    if (currentScope) prompt += `Current Scope: ${currentScope}\n`;
+    prompt += '</file_metadata>\n\n';
+  }
+  
+  prompt += `<instruction>
+${instruction}
+</instruction>
 
-File content (cursor position marked with [CURSOR]):
+<file_content>
 ${fileContent}
+</file_content>
 
-Complete the code/text at the [CURSOR] position. Return ONLY the completion text.`;
+Complete at [CURSOR]. Return ONLY the completion.`;
+  
+  return prompt;
+}
+
+/**
+ * Context-aware instruction generator
+ * Analyzes cursor position and generates appropriate instruction
+ * @param {Object} context - Cursor context information
+ * @returns {string} Appropriate instruction
+ */
+export function getContextAwareInstruction(context) {
+  const { 
+    isInComment, 
+    isInJSDoc, 
+    isInString, 
+    isInFunction,
+    language = 'typescript'
+  } = context;
+  
+  if (isInJSDoc) {
+    return BLOCK_COMMENT_INSTRUCTION;
+  }
+  
+  if (isInComment) {
+    return LINE_COMMENT_INSTRUCTION;
+  }
+  
+  if (isInString) {
+    return `Complete the string content naturally. Match the string's purpose and context. Return ONLY the string content.`;
+  }
+  
+  return createCodeInstruction(language, {
+    isTypeScript: language === 'typescript',
+    hasJSDoc: false
+  });
 }

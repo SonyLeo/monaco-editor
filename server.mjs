@@ -71,6 +71,8 @@ async function callChatAPI(provider, systemPrompt, userPrompt, apiKey) {
   return result.text || '';
 }
 
+import { logPromptInteraction, clearLogs } from './server/utils/promptLogger.mjs';
+
 // ⚡ Fast Track: 代码补全
 app.post('/api/completion', async (req, res) => {
   try {
@@ -102,25 +104,18 @@ app.get(API_ENDPOINTS.HEALTH, (_req, res) => {
 
 // 🧠 Slow Track: NES 预测
 app.post('/api/next-edit-prediction', async (req, res) => {
-  try {
-    const { codeWindow, windowInfo, diffSummary, editHistory, userFeedback, requestId } = req.body;
+  const startTime = Date.now();
+  const { codeWindow, windowInfo, diffSummary, editHistory, userFeedback, requestId } = req.body;
+  const currentRequestId = requestId || `req_${Date.now()}`;
 
-    console.log(`🧠 [Slow] NES Prediction (Request ID: ${requestId})`);
+  try {
+    console.log(`🧠 [Slow] NES Prediction (Request ID: ${currentRequestId})`);
     
     // 详细日志
     console.log('📦 [Request Data]');
     console.log('  diffSummary:', diffSummary);
     console.log('  editHistory:', editHistory ? `${editHistory.length} edits` : 'none');
-    console.log('  userFeedback:', userFeedback ? `${userFeedback.length} feedback(s)` : 'none');
     
-    if (editHistory && editHistory.length > 0) {
-      console.log('  Latest edit:', JSON.stringify(editHistory[editHistory.length - 1], null, 2));
-    }
-    if (userFeedback && userFeedback.length > 0) {
-      console.log('  Recent feedback:', userFeedback.map(f => `${f.action} at line ${f.targetLine}`).join(', '));
-    }
-    console.log('  codeWindow lines:', codeWindow.split('\n').length);
-
     if (!codeWindow || !diffSummary) {
       return res.status(400).json({ error: '缺少必要参数' });
     }
@@ -142,21 +137,48 @@ app.post('/api/next-edit-prediction', async (req, res) => {
     const parsedResult = parseAIResponse(content);
     
     // 格式化响应
-    const finalResponse = formatPredictionResponse(parsedResult, requestId);
+    const finalResponse = formatPredictionResponse(parsedResult, currentRequestId);
+
+    // 记录 NES 日志
+    logPromptInteraction('nes', currentRequestId, {
+      model: config.provider,
+      input: {
+        codeWindowLines: codeWindow.split('\n').length,
+        diffSummary,
+        editHistoryCount: editHistory?.length || 0
+      },
+      systemPrompt: NES_SYSTEM_PROMPT,
+      userPrompt: userPrompt,
+      rawResponse: content,
+      parsedResponse: finalResponse,
+      durationMs: Date.now() - startTime
+    });
 
     res.json(finalResponse);
   } catch (error) {
     console.error('❌ [Slow] Error:', error.message);
+    
+    // 记录错误日志
+    logPromptInteraction('nes', currentRequestId, {
+      model: config.provider,
+      input: { diffSummary, editHistory },
+      error: error.message,
+      durationMs: Date.now() - startTime
+    });
+
     res.status(500).json({ error: error.message });
   }
 });
 
-app.listen(config.port, () => {
-  console.log('\n🚀 NES Dual Engine Server Started!');
-  console.log(`📡 Port: ${config.port}`);
-  console.log(`🔗 Health: http://localhost:${config.port}${API_ENDPOINTS.HEALTH}`);
-  console.log(`⚡ Fast Engine: http://localhost:${config.port}/api/completion`);
-  console.log(`🧠 Slow Engine: http://localhost:${config.port}/api/next-edit-prediction`);
-  console.log(`🤖 Provider: ${config.provider}`);
-  console.log('\n✨ Ready for Next Edit Suggestions!\n');
+// 启动前清理旧日志
+clearLogs().then(() => {
+  app.listen(config.port, () => {
+    console.log('\n🚀 NES Dual Engine Server Started!');
+    console.log(`📡 Port: ${config.port}`);
+    console.log(`🔗 Health: http://localhost:${config.port}${API_ENDPOINTS.HEALTH}`);
+    console.log(`⚡ Fast Engine: http://localhost:${config.port}/api/completion`);
+    console.log(`🧠 Slow Engine: http://localhost:${config.port}/api/next-edit-prediction`);
+    console.log(`🤖 Provider: ${config.provider}`);
+    console.log('\n✨ Ready for Next Edit Suggestions!\n');
+  });
 });

@@ -14,12 +14,12 @@ import { logger } from '../shared/logger';
 
 export class NESEngine {
   private state: 'SLEEPING' | 'DIAGNOSING' | 'SUGGESTING' = 'SLEEPING';
-  private previewShown: boolean = false; // 当前建议是否已展开预览
   private symptomDetector: SymptomDetector;
   private suggestionQueue: SuggestionQueue;
   private renderer: NESRenderer;
   private abortController: AbortController | null = null;
   private onEditApplied?: (lineNumber: number) => void;
+  private requestSnapshot: { timestamp: number; codeHash: string } | null = null; // 请求时的代码快照
 
   constructor(
     private editor: monaco.editor.IStandaloneCodeEditor,
@@ -54,6 +54,15 @@ export class NESEngine {
     const payload = this.symptomDetector.preparePayload(editHistory);
     if (!payload) {
       return;
+    }
+
+    // ✅ 记录请求时的代码快照
+    const model = this.editor.getModel();
+    if (model) {
+      this.requestSnapshot = {
+        timestamp: Date.now(),
+        codeHash: this.hashCode(model.getValue())
+      };
     }
 
     this.state = 'DIAGNOSING';
@@ -119,8 +128,54 @@ export class NESEngine {
       return;
     }
 
+    // ✅ State Freshness Check: 验证代码是否在请求期间被修改
+    if (this.requestSnapshot) {
+      const currentHash = this.hashCode(model.getValue());
+      
+      if (currentHash !== this.requestSnapshot.codeHash) {
+        const timeSinceRequest = Date.now() - this.requestSnapshot.timestamp;
+        logger.warn(
+          `[NESEngine] Code changed during request (${timeSinceRequest}ms). ` +
+          `Predictions may be stale. Consider filtering.`
+        );
+        
+        // 可选策略：如果变化太大，直接丢弃所有预测
+        // 这里我们选择继续，但依赖后续的行内容匹配来过滤
+        // 如果你想更激进，可以取消注释下面这行：
+        // this.sleep(); return;
+      }
+    }
+
+    // ✅ 去重：移除重复预测（相同 targetLine + 相同 suggestionText）
+    // 原因：后端 AI 可能返回重复预测，导致用户按多次 Tab 会重复插入相同内容
+    const uniquePredictions = predictions.filter((pred, index, arr) => {
+      // ✅ 过滤 no-op 预测（suggestionText 和 originalLineContent 完全相同）
+      if (pred.suggestionText === pred.originalLineContent) {
+        logger.warn(`[NESEngine] Filtered no-op prediction for line ${pred.targetLine}: suggestion equals original`);
+        return false;
+      }
+
+      // 检查当前预测之前是否已有相同的预测
+      const isDuplicate = arr.slice(0, index).some(p => 
+        p.targetLine === pred.targetLine && 
+        p.suggestionText === pred.suggestionText
+      );
+      
+      if (isDuplicate) {
+        logger.debug(`[NESEngine] Filtered duplicate prediction for line ${pred.targetLine}`);
+      }
+      
+      return !isDuplicate;
+    });
+
+    if (uniquePredictions.length === 0) {
+      logger.warn('[NESEngine] All predictions filtered out (duplicates or invalid)');
+      this.sleep();
+      return;
+    }
+
     // 过滤并处理每个预测
-    const processedPredictions = predictions
+    const processedPredictions = uniquePredictions
       .filter(pred => {
         // 验证行号范围
         if (pred.targetLine < 1 || pred.targetLine > model.getLineCount()) {
@@ -128,28 +183,28 @@ export class NESEngine {
           return false;
         }
 
-        // 验证 originalLineContent 与实际行内容是否匹配
-        const actualLine = model.getLineContent(pred.targetLine);
+        // 尝试修正行号（容错处理）
+        // 如果 targetLine 内容不匹配，尝试在附近查找
         if (pred.originalLineContent) {
-          const normalize = (s: string) => s.replace(/\s+/g, ' ').trim();
-          const expectedNormalized = normalize(pred.originalLineContent);
-          const actualNormalized = normalize(actualLine);
-
-          if (expectedNormalized !== actualNormalized) {
-            // 计算相似度，如果太低则跳过
-            const similarity = this.calculateSimilarity(expectedNormalized, actualNormalized);
-            if (similarity < 0.8) {
-              logger.warn('[NESEngine] Content mismatch, skipping prediction:', {
-                targetLine: pred.targetLine,
-                expected: pred.originalLineContent,
-                actual: actualLine,
-                similarity: similarity.toFixed(2)
-              });
-              return false;
+          const correctedLine = this.findBestMatchingLine(model, pred.targetLine, pred.originalLineContent);
+          
+          if (correctedLine !== -1) {
+            if (correctedLine !== pred.targetLine) {
+              logger.debug(`[NESEngine] Corrected line number ${pred.targetLine} -> ${correctedLine}`);
+              pred.targetLine = correctedLine;
             }
+          } else {
+            // 只有当找不到高相似度行时才记录警告并跳过
+            // 对于 INSERT/DELETE，需要特殊放宽条件，暂不处理
+             const actualLine = model.getLineContent(pred.targetLine);
+             logger.warn('[NESEngine] Content mismatch, skipping prediction:', {
+               targetLine: pred.targetLine,
+               expected: pred.originalLineContent,
+               actual: actualLine,
+             });
+             return false;
           }
         }
-
         return true;
       })
       .map(pred => {
@@ -224,36 +279,11 @@ export class NESEngine {
   }
 
   /**
-   * 显示第一个建议（只显示 Glyph，不展开预览）
+   * 显示第一个建议（直接展开预览）
    */
   private showFirstSuggestion(): void {
     const prediction = this.suggestionQueue.peek();
     if (prediction) {
-      
-      // 计算进度
-      const current = this.suggestionQueue.getCurrentIndex() + 1;
-      const total = this.suggestionQueue.size();
-      const progress = total > 1 ? `${current}/${total}` : undefined;
-      
-      // 只显示 Glyph 和 HintBar，不展开预览
-      this.renderer.renderSuggestion(prediction);
-      this.renderer.showHintBar(prediction.targetLine, prediction.explanation, false, progress);
-      
-      // 设置预览状态为未展开
-      this.previewShown = false;
-    }
-  }
-
-  /**
-   * 切换到预览模式（Tab 键触发）
-   */
-  public togglePreview(): void {
-    const prediction = this.suggestionQueue.peek();
-    if (!prediction) {
-      return;
-    }
-
-    if (!this.previewShown) {
       
       // 跳转到建议位置
       this.editor.setPosition({
@@ -262,7 +292,8 @@ export class NESEngine {
       });
       this.editor.revealLineInCenter(prediction.targetLine);
       
-      // 展开预览
+      // 直接显示预览（渲染 Glyph + 展开预览）
+      this.renderer.renderSuggestion(prediction);
       this.renderer.showPreview(prediction);
       
       // 计算进度
@@ -270,17 +301,15 @@ export class NESEngine {
       const total = this.suggestionQueue.size();
       const progress = total > 1 ? `${current}/${total}` : undefined;
       
-      // 更新 HintBar 提示（显示 "Tab Accept"）
+      // 显示 HintBar（提示 "Tab Accept"）
       this.renderer.showHintBar(prediction.targetLine, prediction.explanation, true, progress);
-      
-      // 更新状态
-      this.previewShown = true;
-    } else {
     }
   }
 
+
+
   /**
-   * 接受当前建议
+   * 接受当前建议（Accept 后自动展开下一个预览）
    */
   acceptSuggestion(): void {
     const prediction = this.suggestionQueue.dequeue();
@@ -291,19 +320,16 @@ export class NESEngine {
     // 使用新的 API：applySuggestion（自动根据 changeType 处理）
     this.renderer.applySuggestion(prediction);
 
-    // 重置预览状态
-    this.previewShown = false;
+    // 通知主入口标记为 NES 编辑
+    if (this.onEditApplied) {
+      this.onEditApplied(prediction.targetLine);
+    }
 
-    // 显示下一个建议
+    // 显示下一个建议（直接展开预览）
     if (this.suggestionQueue.peek()) {
       this.showFirstSuggestion();
     } else {
       this.sleep();
-    }
-
-    // 通知主入口标记为 NES 编辑
-    if (this.onEditApplied) {
-      this.onEditApplied(prediction.targetLine);
     }
   }
 
@@ -316,12 +342,8 @@ export class NESEngine {
       return;
     }
 
-
     // 清除渲染
     this.renderer.clear();
-
-    // 重置预览状态
-    this.previewShown = false;
 
     // 显示下一个建议
     if (this.suggestionQueue.peek()) {
@@ -379,12 +401,7 @@ export class NESEngine {
     return this.state !== 'SLEEPING';
   }
 
-  /**
-   * 检查预览是否已展开
-   */
-  isPreviewShown(): boolean {
-    return this.previewShown;
-  }
+
 
   /**
    * 获取当前状态
@@ -402,6 +419,62 @@ export class NESEngine {
     }
     this.renderer.dispose();
     this.sleep();
+  }
+
+  /**
+   * 在指定行号附近查找最匹配的行
+   * @param model 编辑器模型
+   * @param targetLine 目标行号
+   * @param content 期待的内容
+   * @param range 搜索范围（上下多少行）
+   * @returns 匹配的行号，如果没找到返回 -1
+   */
+  private findBestMatchingLine(model: monaco.editor.ITextModel, targetLine: number, content: string, range: number = 2): number {
+    const normalize = (s: string) => s.replace(/\s+/g, ' ').trim();
+    const expectedNormalized = normalize(content);
+    
+    // 如果期待内容为空，且行号有效，直接返回（通常是 insert 到空行）
+    // 注意：如果实际行不是空的，可能是 replace 整个行。这里做个权衡。
+    if (expectedNormalized === '') return targetLine;
+
+    // 搜索候选行
+    let bestLine = -1;
+    let maxSimilarity = 0;
+    
+    const start = Math.max(1, targetLine - range);
+    const end = Math.min(model.getLineCount(), targetLine + range);
+
+    for (let line = start; line <= end; line++) {
+      const actualLine = model.getLineContent(line);
+      const actualNormalized = normalize(actualLine);
+      
+      // 完全匹配直接返回
+      if (actualNormalized === expectedNormalized) {
+        return line;
+      }
+      
+      const similarity = this.calculateSimilarity(expectedNormalized, actualNormalized);
+      if (similarity > maxSimilarity) {
+        maxSimilarity = similarity;
+        bestLine = line;
+      }
+    }
+
+    // 只有相似度足够高才认为是匹配的
+    return maxSimilarity >= 0.8 ? bestLine : -1;
+  }
+
+  /**
+   * 计算字符串的简单哈希值（用于快速比较代码是否变化）
+   */
+  private hashCode(str: string): string {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    return hash.toString(16);
   }
 
   /**

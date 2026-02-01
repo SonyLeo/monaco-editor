@@ -57,20 +57,38 @@ export class PositionFinder {
       }
     }
     
-    // ✅ 策略 3：只用 before 定位（忽略 after）
-    if (context.before && context.before.length >= 3) {
-      const beforeIndex = line.indexOf(context.before);
-      if (beforeIndex !== -1) {
-        const targetStart = beforeIndex + context.before.length;
-        const startColumn = targetStart + 1;
-        const endColumn = startColumn + context.target.length;
-        
-        // 验证
-        if (context.target === '' || line.substring(targetStart, targetStart + context.target.length) === context.target) {
-          return { startColumn, endColumn };
+  // ✅ 策略 3：只用 before 定位（忽略 after）
+  // ⚠️ 仅在 after 也能部分匹配时才使用，避免完全错误的 context 导致误定位
+  if (context.before && context.before.length >= 3) {
+    const beforeIndex = line.indexOf(context.before);
+    if (beforeIndex !== -1) {
+      const targetStart = beforeIndex + context.before.length;
+      const startColumn = targetStart + 1;
+      const endColumn = startColumn + context.target.length;
+      
+      // ✅ 验证 target 位置
+      if (context.target === '' || line.substring(targetStart, targetStart + context.target.length) === context.target) {
+        // ✅ 额外验证：检查 after 是否在附近（允许一定偏差）
+        if (context.after && context.after.length >= 2) {
+          const targetEnd = targetStart + context.target.length;
+          const afterStartInLine = targetEnd;
+          const possibleAfter = line.substring(afterStartInLine, afterStartInLine + context.after.length + 10); // 往后看一点
+          
+          // 如果 after 完全不匹配（连子串都不包含），说明 context 严重错误
+          if (!possibleAfter.includes(context.after.substring(0, Math.min(context.after.length, 3)))) {
+            logger.warn('[PositionFinder] ✗ Strategy 3: after pattern mismatch, skipping', {
+              before: context.before,
+              expectedAfter: context.after,
+              actualAfter: possibleAfter.substring(0, 20),
+            });
+            return null; // 拒绝使用这个匹配
+          }
         }
+        
+        return { startColumn, endColumn };
       }
     }
+  }
     
     // ✅ 策略 4：只用 target 查找（最后降级）
     logger.warn('[PositionFinder] All strategies failed, trying target only', {

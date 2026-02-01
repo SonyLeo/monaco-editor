@@ -293,36 +293,32 @@ renderSuggestion(prediction) {
 | `INSERT` | 新行插入预览 | 添加代码行 |
 | `DELETE` | 删除行标记 | 移除代码行 |
 
-### 4.4 两阶段 Tab 交互
+### 4.4 单步 Tab 交互
 
-**设计目标**：减少快捷键复杂度，统一使用 Tab 键
+**设计目标**：简化交互流程，提升操作效率
 
 **交互流程**：
-1. **第 1 次 Tab**：跳转到建议位置 + 展开预览
-2. **第 2 次 Tab**：接受建议 + 应用编辑
-3. **多建议场景**：接受后自动显示下一个建议（带进度提示 "2/3"）
+1. **NES 激活**：自动展开第一个预测的预览
+2. **按 Tab**：接受当前预测 + 自动展开下一个预测的预览
+3. **多建议场景**：持续按 Tab 依次应用所有预测（带进度提示 "2/3"）
 
-**状态管理**：
+**核心逻辑**：
 ```typescript
-private previewShown: boolean = false;
-
-togglePreview() {
-  if (!this.previewShown) {
-    // 跳转 + 展开预览
-    editor.setPosition({ lineNumber: targetLine });
-    renderer.showPreview(prediction);
-    this.previewShown = true;
-  }
+// 显示建议时直接展开预览
+showFirstSuggestion() {
+  // 跳转 + 展开预览
+  editor.setPosition({ lineNumber: targetLine });
+  renderer.showPreview(prediction);
 }
 
+// Tab 键直接 Accept
 acceptSuggestion() {
   // 应用编辑
   renderer.applySuggestion(prediction);
-  this.previewShown = false;
 
-  // 显示下一个建议
+  // 显示下一个建议（自动展开预览）
   if (queue.hasMore()) {
-    showNextSuggestion();
+    showFirstSuggestion();
   }
 }
 ```
@@ -663,8 +659,6 @@ Analyze the edit history and predict ALL locations in the code window that need 
 | 快捷键 | 功能 | 适用场景 |
 |--------|------|---------|
 | `Tab` | 接受补全/建议 | FIM + NES |
-| `Tab` (第 1 次) | 跳转 + 展开预览 | NES |
-| `Tab` (第 2 次) | 接受建议 | NES |
 | `Alt+N` | 跳过当前建议 | NES |
 | `Esc` | 关闭补全/建议 | FIM + NES |
 

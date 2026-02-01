@@ -25,11 +25,12 @@ export class SymptomDetector {
       return null;
     }
 
-    // 只使用用户编辑，过滤掉 NES 自动应用的编辑
-    const userEdits = editHistory.filter(e => e.source !== 'nes');
+    // ✅ 只使用用户编辑，过滤掉 NES 和 FIM 自动应用的编辑
+    // 原因：FIM 补全不代表用户意图，不应影响 NES 预测
+    const userEdits = editHistory.filter(e => e.source === 'user');
     
     if (userEdits.length === 0) {
-      console.log('[SymptomDetector] No user edits, skipping payload');
+      console.log('[SymptomDetector] No user edits (filtered FIM/NES), skipping payload');
       return null;
     }
 
