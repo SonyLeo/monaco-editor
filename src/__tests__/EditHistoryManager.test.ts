@@ -153,8 +153,15 @@ describe('EditHistoryManager - Ultimate Coverage', () => {
 
   describe('Tree-sitter', () => {
     it('should handle enrichment errors', () => {
+      // 由于使用单例模式，treeSitterAnalyzer 初始时为 null
+      // 需要先设置一个 mock 实例
+      const mockAnalyzer = {
+        analyzeEdit: vi.fn().mockImplementation(() => { throw new Error('Mock error'); }),
+      };
+      
+      (manager as any).treeSitterAnalyzer = mockAnalyzer;
       (manager as any).treeSitterEnabled = true;
-      vi.spyOn((manager as any).treeSitterAnalyzer, 'analyzeEdit').mockImplementation(() => { throw new Error(); });
+      
       manager.recordEdit(createChange('x', { startLine: 1, startCol: 1, endLine: 1, endCol: 1 }, 0), createMockModel('x'));
       expect(manager.getRecentEdits().length).toBe(1);
     });

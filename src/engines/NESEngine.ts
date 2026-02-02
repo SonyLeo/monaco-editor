@@ -478,7 +478,7 @@ export class NESEngine {
   }
 
   /**
-   * 计算两个字符串的相似度（Levenshtein 距离）
+   * 计算两个字符串的相似度（Levenshtein 距离，空间优化版）
    */
   private calculateSimilarity(str1: string, str2: string): number {
     if (str1 === str2) return 1;
@@ -487,28 +487,27 @@ export class NESEngine {
     const len1 = str1.length;
     const len2 = str2.length;
 
-    // 创建距离矩阵
-    const matrix: number[][] = [];
-    for (let i = 0; i <= len1; i++) {
-      matrix[i] = [i];
-    }
-    for (let j = 0; j <= len2; j++) {
-      matrix[0]![j] = j;
-    }
+    // 空间优化：只使用两行（O(min(len1, len2)) 空间）
+    let prevRow = Array.from({ length: len2 + 1 }, (_, i) => i);
+    let currRow = new Array(len2 + 1);
 
-    // 填充矩阵
     for (let i = 1; i <= len1; i++) {
+      currRow[0] = i;
+      
       for (let j = 1; j <= len2; j++) {
         const cost = str1[i - 1] === str2[j - 1] ? 0 : 1;
-        matrix[i]![j] = Math.min(
-          matrix[i - 1]![j]! + 1,      // 删除
-          matrix[i]![j - 1]! + 1,      // 插入
-          matrix[i - 1]![j - 1]! + cost // 替换
+        currRow[j] = Math.min(
+          prevRow[j]! + 1,        // 删除
+          currRow[j - 1]! + 1,    // 插入
+          prevRow[j - 1]! + cost  // 替换
         );
       }
+      
+      // 交换行
+      [prevRow, currRow] = [currRow, prevRow];
     }
 
-    const distance = matrix[len1]![len2]!;
+    const distance = prevRow[len2]!;
     const maxLen = Math.max(len1, len2);
     return 1 - distance / maxLen;
   }

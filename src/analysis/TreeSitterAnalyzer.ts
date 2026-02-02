@@ -33,6 +33,7 @@ export class TreeSitterAnalyzer {
       // 设置语言
       this.parser.setLanguage(this.language);
       this.initialized = true;
+      logger.debug('[TreeSitter] Parser initialized with language:', languageFile);
     } catch (error) {
       logger.error('[TreeSitter] Initialization failed:', error);
       throw error;
@@ -524,26 +525,11 @@ export class TreeSitterAnalyzer {
     }
   }
 
-  /**
+   /**
    * 检查是否已初始化
    */
   isInitialized(): boolean {
     return this.initialized;
-  }
-
-  /**
-   * 获取节点的完整路径（用于调试）
-   */
-  getNodePath(node: Node): string {
-    const path: string[] = [];
-    let current: Node | null = node;
-
-    while (current) {
-      path.unshift(current.type);
-      current = current.parent;
-    }
-
-    return path.join(' > ');
   }
 
   /**

@@ -15,5 +15,7 @@ export default defineConfig({
   },
   optimizeDeps: {
     include: ['monaco-editor'],
+    exclude: ['web-tree-sitter'], // 排除 tree-sitter，避免预打包
   },
+  assetsInclude: ['**/*.wasm'],
 });

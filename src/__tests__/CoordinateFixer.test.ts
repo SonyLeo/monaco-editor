@@ -135,11 +135,20 @@ describe('CoordinateFixer - Layer Mastery', () => {
     });
     describe('Coverage Boost', () => {
         it('should return early if TreeSitter already initialized (Line 27)', async () => {
-             const spy = vi.spyOn(TreeSitterAnalyzer.prototype, 'init').mockResolvedValue(undefined);
-             vi.spyOn(TreeSitterAnalyzer.prototype, 'isInitialized').mockReturnValue(true);
+             // 使用单例模式后，需要 mock getTreeSitterInstance
+             const mockInstance = {
+                 isInitialized: vi.fn().mockReturnValue(true),
+                 init: vi.fn().mockResolvedValue(undefined),
+             } as any;
+             
+             vi.spyOn(await import('@/analysis/TreeSitterInstance'), 'getTreeSitterInstance')
+                 .mockResolvedValue(mockInstance);
+             
              await fixer.initTreeSitter();
              await fixer.initTreeSitter(); // Second call
-             expect(spy).toHaveBeenCalledTimes(1); 
+             
+             // 单例模式下，getTreeSitterInstance 只会被调用一次
+             expect(mockInstance.init).not.toHaveBeenCalled(); // 因为 isInitialized 返回 true
         });
 
         it('fixInlineInsertCoordinates Layer 2 Query (Line 305-322)', async () => {

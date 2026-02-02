@@ -4,7 +4,8 @@
 
 import type * as monaco from 'monaco-editor';
 import type { EditRecord } from '@/types';
-import { TreeSitterAnalyzer } from '@/analysis/TreeSitterAnalyzer';
+import { getTreeSitterInstance } from '@/analysis/TreeSitterInstance';
+import type { TreeSitterAnalyzer } from '@/analysis/TreeSitterAnalyzer';
 import { logger } from '@/utils/logger';
 
 export class EditHistoryManager {
@@ -17,12 +18,11 @@ export class EditHistoryManager {
   private readonly MERGE_DISTANCE_THRESHOLD = 2; // 位置相差不超过 2 个字符
 
   // Tree-sitter 分析器
-  private treeSitterAnalyzer: TreeSitterAnalyzer;
+  private treeSitterAnalyzer: TreeSitterAnalyzer | null = null;
   private treeSitterEnabled = false;
 
   constructor(initialSnapshot: string) {
     this.lastSnapshot = initialSnapshot;
-    this.treeSitterAnalyzer = new TreeSitterAnalyzer();
     this.initTreeSitter();
   }
 
@@ -31,7 +31,7 @@ export class EditHistoryManager {
    */
   private async initTreeSitter(): Promise<void> {
     try {
-      await this.treeSitterAnalyzer.init();
+      this.treeSitterAnalyzer = await getTreeSitterInstance();
       this.treeSitterEnabled = true;
     } catch (error) {
       logger.warn('[EditHistoryManager] Tree-sitter initialization failed, using basic mode');
@@ -95,6 +95,11 @@ export class EditHistoryManager {
    * 使用 Tree-sitter 增强编辑记录
    */
   private enrichWithTreeSitter(edit: EditRecord, model: monaco.editor.ITextModel): void {
+    // 检查 Tree-sitter 是否可用
+    if (!this.treeSitterAnalyzer) {
+      return;
+    }
+
     try {
       // 获取完整代码
       const code = model.getValue();

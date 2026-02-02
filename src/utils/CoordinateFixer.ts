@@ -10,7 +10,8 @@
 import type { Prediction } from '@/types';
 import { PositionFinder } from './PositionFinder';
 import { DiffCalculator } from './DiffCalculator';
-import { TreeSitterAnalyzer } from '@/analysis/TreeSitterAnalyzer';
+import { getTreeSitterInstance } from '@/analysis/TreeSitterInstance';
+import type { TreeSitterAnalyzer } from '@/analysis/TreeSitterAnalyzer';
 import { logger } from './logger';
 
 export class CoordinateFixer {
@@ -19,10 +20,10 @@ export class CoordinateFixer {
   private fullCode: string = '';  // 完整代码（用于 Tree-sitter 分析）
 
   /**
-   * 初始化 Tree-sitter（异步，可选）
+   * 初始化 Tree-sitter（异步，使用共享实例）
    * 调用此方法后，Layer 2 将可用
    */
-  async initTreeSitter(languageFile?: string): Promise<void> {
+  async initTreeSitter(): Promise<void> {
     if (this.treeSitterAnalyzer?.isInitialized()) {
       return;
     }
@@ -31,9 +32,9 @@ export class CoordinateFixer {
       return this.treeSitterInitPromise;
     }
 
-    this.treeSitterAnalyzer = new TreeSitterAnalyzer();
-    this.treeSitterInitPromise = this.treeSitterAnalyzer.init(languageFile)
-      .then(() => {
+    this.treeSitterInitPromise = getTreeSitterInstance()
+      .then((instance) => {
+        this.treeSitterAnalyzer = instance;
       })
       .catch((error) => {
         logger.warn('[CoordinateFixer] Tree-sitter init failed, Layer 2 disabled:', error);
