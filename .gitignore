@@ -33,3 +33,6 @@ coverage/*
 test-results/
 playwright-report/
 playwright/.cache/
+
+# *.wasm 文件
+public/*.wasm

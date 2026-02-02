@@ -11,7 +11,7 @@
  */
 
 import * as monaco from 'monaco-editor';
-import type { ChangeType, WordReplaceInfo, InlineInsertInfo } from '../types/index';
+import type { ChangeType, WordReplaceInfo, InlineInsertInfo } from '@/types';
 
 export class DecorationManager {
   private glyphDecorations: string[] = [];

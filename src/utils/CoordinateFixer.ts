@@ -7,10 +7,10 @@
  * 3. fast-diff fallback (DiffCalculator) - 70%+ 准确率
  */
 
-import type { Prediction } from '../types/index';
+import type { Prediction } from '@/types';
 import { PositionFinder } from './PositionFinder';
 import { DiffCalculator } from './DiffCalculator';
-import { TreeSitterAnalyzer } from '../analysis/TreeSitterAnalyzer';
+import { TreeSitterAnalyzer } from '@/analysis/TreeSitterAnalyzer';
 import { logger } from './logger';
 
 export class CoordinateFixer {

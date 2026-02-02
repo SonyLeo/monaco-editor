@@ -3,9 +3,9 @@
  */
 
 import type * as monaco from 'monaco-editor';
-import type { EditRecord } from '../types/index';
-import { TreeSitterAnalyzer } from '../analysis/TreeSitterAnalyzer';
-import { logger } from '../utils/logger';
+import type { EditRecord } from '@/types';
+import { TreeSitterAnalyzer } from '@/analysis/TreeSitterAnalyzer';
+import { logger } from '@/utils/logger';
 
 export class EditHistoryManager {
   private editHistory: EditRecord[] = [];

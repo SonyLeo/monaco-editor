@@ -1,6 +1,6 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { EditHistoryManager } from '../services/EditHistoryManager';
+import { EditHistoryManager } from '@/services/EditHistoryManager';
 import type * as monaco from 'monaco-editor';
 
 describe('EditHistoryManager - Ultimate Coverage', () => {

@@ -40,12 +40,11 @@ monaco-editor-ai/
 │   │   ├── PredictionService.ts   #    API 调用服务
 │   │   ├── EditHistoryManager.ts  #    编辑历史追踪
 │   │   ├── SuggestionQueue.ts     #    建议队列管理
-│   │   └── EditDispatcher.ts      #    事件分发
+│   │   └── EngineDispatcher.ts   #    引擎协调
 │   │
 │   ├── analysis/                  # 🔍 [分析层] 代码理解
 │   │   ├── SymptomDetector.ts     #    编辑症状检测
 │   │   ├── TreeSitterAnalyzer.ts  #    AST 深度分析
-│   │   └── CodeParser.ts          #    基础代码解析
 │   │
 │   ├── rendering/                 # 🎨 [渲染层] UI 呈现
 │   │   ├── NESRenderer.ts         #    NES 渲染协调器

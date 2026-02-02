@@ -1,6 +1,6 @@
 
 import { describe, it, expect } from 'vitest';
-import { DiffCalculator } from '../utils/DiffCalculator';
+import { DiffCalculator } from '@/utils/DiffCalculator';
 
 describe('DiffCalculator - Final Coverage', () => {
     describe('calculateWordReplace', () => {

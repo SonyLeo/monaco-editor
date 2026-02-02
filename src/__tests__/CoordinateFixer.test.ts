@@ -1,11 +1,11 @@
 ﻿
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { CoordinateFixer } from '../utils/CoordinateFixer';
-import { TreeSitterAnalyzer } from '../analysis/TreeSitterAnalyzer';
-import { PositionFinder } from '../utils/PositionFinder';
-import { DiffCalculator } from '../utils/DiffCalculator';
-import { logger } from '../utils/logger';
-import type { Prediction } from '../types/index';
+import { CoordinateFixer } from '@/utils/CoordinateFixer';
+import { TreeSitterAnalyzer } from '@/analysis/TreeSitterAnalyzer';
+import { PositionFinder } from '@/utils/PositionFinder';
+import { DiffCalculator } from '@/utils/DiffCalculator';
+import { logger } from '@/utils/logger';
+import type { Prediction } from '@/types';
 
 describe('CoordinateFixer - Layer Mastery', () => {
     let fixer: CoordinateFixer;

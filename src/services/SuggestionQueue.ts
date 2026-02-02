@@ -2,7 +2,7 @@
  * Suggestion Queue - 建议队列管理
  */
 
-import type { Prediction } from '../types/index';
+import type { Prediction } from '@/types';
 
 export class SuggestionQueue {
   private queue: Prediction[] = [];

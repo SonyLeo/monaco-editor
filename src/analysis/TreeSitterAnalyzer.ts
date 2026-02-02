@@ -4,88 +4,11 @@
  */
 
 import { logger } from '../utils/logger';
-
-// 定义 Tree-sitter 类型（因为 web-tree-sitter 的类型定义不完整）
-type SyntaxNode = {
-  type: string;
-  text: string;
-  startPosition: { row: number; column: number };
-  endPosition: { row: number; column: number };
-  parent: SyntaxNode | null;
-  children: SyntaxNode[];
-  descendantForPosition(position: { row: number; column: number }): SyntaxNode | null;
-};
-
-type Tree = {
-  rootNode: SyntaxNode;
-  edit(edit: any): void;
-};
-
-type Language = any;
-
-type ParserType = {
-  parse(input: string, oldTree?: Tree): Tree;
-  setLanguage(language: Language): void;
-};
-
-// 全局 TreeSitter 引用（浏览器环境由 CDN 提供）
-declare global {
-  interface Window {
-    TreeSitter: any;
-  }
-}
-
-// 尝试导入（仅在 Node.js 环境）
-let TreeSitterModule: any = null;
-if (typeof window === 'undefined') {
-  // Node.js 环境 - 动态导入
-  import('web-tree-sitter').then(module => {
-    TreeSitterModule = module;
-  }).catch(() => {
-    logger.warn('[TreeSitter] Module not available in Node.js environment');
-  });
-}
-
-export interface ASTNodeInfo {
-  type: string;           // 节点类型
-  text: string;           // 节点文本
-  startPosition: { row: number; column: number };
-  endPosition: { row: number; column: number };
-  parent?: {
-    type: string;
-    text: string;
-  };
-  children?: Array<{
-    type: string;
-    text: string;
-    startPosition: { row: number; column: number };
-    endPosition: { row: number; column: number };
-  }>;
-}
-
-export interface SymbolInfo {
-  name: string;
-  kind: 'function' | 'variable' | 'class' | 'parameter' | 'property' | 'method' | 'interface' | 'type';
-  scope: 'local' | 'global' | 'module' | 'class';
-  isExported?: boolean;
-  isAsync?: boolean;
-  returnType?: string;
-}
-
-export interface SyntaxContext {
-  inFunctionDeclaration: boolean;
-  inClassDeclaration: boolean;
-  inObjectLiteral: boolean;
-  inArrayLiteral: boolean;
-  inConditional: boolean;
-  inLoop: boolean;
-  parentExpression?: string;
-  nearestFunction?: string;
-  nearestClass?: string;
-}
+import { Parser, Language, Tree, Node } from 'web-tree-sitter';
+import type { ASTNodeInfo, SymbolInfo, SyntaxContext } from '../types/index';
 
 export class TreeSitterAnalyzer {
-  private parser: ParserType | null = null;
+  private parser: Parser | null = null;
   private language: Language | null = null;
   private initialized = false;
   private parseCache = new Map<string, Tree>();
@@ -98,35 +21,16 @@ export class TreeSitterAnalyzer {
     if (this.initialized) return;
 
     try {
-      let TreeSitterAPI: any;
-
-      // 检测环境
-      if (typeof window !== 'undefined' && (window as any).TreeSitter) {
-        // 浏览器环境 - 使用全局 TreeSitter（由 CDN 加载）
-        TreeSitterAPI = (window as any).TreeSitter;
-      } else if (TreeSitterModule) {
-        // Node.js 环境 - 使用导入的模块
-        TreeSitterAPI = TreeSitterModule.Parser || TreeSitterModule;
-      } else {
-        throw new Error('TreeSitter not available. In browser, load web-tree-sitter via CDN first.');
-      }
-
-      // 初始化 Parser
-      if (typeof TreeSitterAPI.init === 'function') {
-        await TreeSitterAPI.init();
-      }
+      // 初始化 Parser（静态方法）
+      await Parser.init();
       
       // 创建 Parser 实例
-      this.parser = new TreeSitterAPI() as ParserType;
+      this.parser = new Parser();
       
       // 加载语言
-      const LanguageClass = TreeSitterAPI.Language;
-      if (LanguageClass && typeof LanguageClass.load === 'function') {
-        this.language = await LanguageClass.load(languageFile);
-      } else {
-        throw new Error('Language.load not available');
-      }
+      this.language = await Language.load(languageFile);
       
+      // 设置语言
       this.parser.setLanguage(this.language);
       this.initialized = true;
     } catch (error) {
@@ -149,7 +53,7 @@ export class TreeSitterAnalyzer {
       const tree = this.parseWithCache(code);
       if (!tree) return null;
       
-      // 2. 找到光标位置的节点
+      // 2. 找到光标位置的节点（使用官方 API）
       const node = tree.rootNode.descendantForPosition({
         row: lineNumber - 1,  // Tree-sitter 使用 0-based
         column: column - 1,
@@ -180,6 +84,9 @@ export class TreeSitterAnalyzer {
 
     const tree = this.parser.parse(code);
     
+    // 检查 tree 是否为 null
+    if (!tree) return null;
+    
     // 限制缓存大小
     if (this.parseCache.size >= this.CACHE_MAX_SIZE) {
       const firstKey = this.parseCache.keys().next().value;
@@ -208,7 +115,7 @@ export class TreeSitterAnalyzer {
   /**
    * 提取 AST 节点信息
    */
-  private extractNodeInfo(node: SyntaxNode): ASTNodeInfo {
+  private extractNodeInfo(node: Node): ASTNodeInfo {
     return {
       type: node.type,
       text: node.text.length > 100 ? node.text.substring(0, 100) + '...' : node.text,
@@ -218,7 +125,7 @@ export class TreeSitterAnalyzer {
         type: node.parent.type,
         text: node.parent.text.length > 50 ? node.parent.text.substring(0, 50) + '...' : node.parent.text,
       } : undefined,
-      children: node.children.slice(0, 5).map((child: SyntaxNode) => ({
+      children: node.children.slice(0, 5).map((child: Node) => ({
         type: child.type,
         text: child.text.length > 30 ? child.text.substring(0, 30) + '...' : child.text,
         startPosition: child.startPosition,
@@ -230,7 +137,7 @@ export class TreeSitterAnalyzer {
   /**
    * 推断符号信息
    */
-  inferSymbolInfo(node: SyntaxNode): SymbolInfo | null {
+  inferSymbolInfo(node: Node): SymbolInfo | null {
     // 根据节点类型推断符号类型
     const symbolKind = this.getSymbolKind(node);
     if (!symbolKind) return null;
@@ -252,7 +159,7 @@ export class TreeSitterAnalyzer {
   /**
    * 获取符号类型
    */
-  private getSymbolKind(node: SyntaxNode): SymbolInfo['kind'] | null {
+  private getSymbolKind(node: Node): SymbolInfo['kind'] | null {
     const typeMap: Record<string, SymbolInfo['kind']> = {
       'function_declaration': 'function',
       'arrow_function': 'function',
@@ -285,7 +192,7 @@ export class TreeSitterAnalyzer {
   /**
    * 提取符号名称
    */
-  private extractSymbolName(node: SyntaxNode): string {
+  private extractSymbolName(node: Node): string {
     // 尝试找到 identifier 子节点
     const identifierNode = this.findChildByType(node, 'identifier');
     if (identifierNode) {
@@ -304,7 +211,7 @@ export class TreeSitterAnalyzer {
   /**
    * 推断作用域
    */
-  private inferScope(node: SyntaxNode): SymbolInfo['scope'] {
+  private inferScope(node: Node): SymbolInfo['scope'] {
     let current = node.parent;
 
     while (current) {
@@ -337,7 +244,7 @@ export class TreeSitterAnalyzer {
   /**
    * 检查是否被导出
    */
-  private isExported(node: SyntaxNode): boolean {
+  private isExported(node: Node): boolean {
     let current = node.parent;
 
     while (current) {
@@ -353,7 +260,7 @@ export class TreeSitterAnalyzer {
   /**
    * 检查是否是异步函数
    */
-  private isAsync(node: SyntaxNode): boolean {
+  private isAsync(node: Node): boolean {
     // 检查节点文本是否包含 async
     if (node.text.startsWith('async ')) {
       return true;
@@ -370,7 +277,7 @@ export class TreeSitterAnalyzer {
   /**
    * 构建语法上下文
    */
-  buildSyntaxContext(node: SyntaxNode): SyntaxContext {
+  buildSyntaxContext(node: Node): SyntaxContext {
     let current = node.parent;
     
     const context: SyntaxContext = {
@@ -436,7 +343,8 @@ export class TreeSitterAnalyzer {
   /**
    * 辅助方法：查找特定类型的子节点
    */
-  private findChildByType(node: SyntaxNode, type: string): SyntaxNode | null {
+  private findChildByType(node: Node, type: string): Node | null {
+    // 使用官方 API 的 children 属性
     for (const child of node.children) {
       if (child.type === type) {
         return child;
@@ -475,10 +383,10 @@ export class TreeSitterAnalyzer {
 
       // 获取目标行的所有节点
       const targetRow = lineNumber - 1; // Tree-sitter 使用 0-based
-      const matchingNodes: SyntaxNode[] = [];
+      const matchingNodes: Node[] = [];
 
       // 递归查找所有匹配的节点
-      const findMatches = (node: SyntaxNode) => {
+      const findMatches = (node: Node) => {
         // 检查节点是否在目标行
         if (node.startPosition.row === targetRow || node.endPosition.row === targetRow) {
           // 检查文本是否匹配
@@ -548,9 +456,9 @@ export class TreeSitterAnalyzer {
       if (!tree) return null;
 
       const targetRow = query.lineNumber - 1;
-      const matchingNodes: SyntaxNode[] = [];
+      const matchingNodes: Node[] = [];
 
-      const findMatches = (node: SyntaxNode) => {
+      const findMatches = (node: Node) => {
         // 检查节点是否在目标行
         const nodeInTargetLine = 
           node.startPosition.row === targetRow || 
@@ -626,9 +534,9 @@ export class TreeSitterAnalyzer {
   /**
    * 获取节点的完整路径（用于调试）
    */
-  getNodePath(node: SyntaxNode): string {
+  getNodePath(node: Node): string {
     const path: string[] = [];
-    let current: SyntaxNode | null = node;
+    let current: Node | null = node;
 
     while (current) {
       path.unshift(current.type);

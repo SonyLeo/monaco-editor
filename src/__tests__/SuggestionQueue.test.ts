@@ -1,7 +1,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { SuggestionQueue } from '../services/SuggestionQueue';
-import type { Prediction } from '../types/index';
+import { SuggestionQueue } from '@/services/SuggestionQueue';
+import type { Prediction } from '@/types';
 
 describe('SuggestionQueue', () => {
   let queue: SuggestionQueue;
@@ -34,7 +34,7 @@ describe('SuggestionQueue', () => {
     });
 
     it('should overwrite existing queue', () => {
-      queue.enqueue([mockPredictions[0]]);
+      queue.enqueue([mockPredictions[0]!]);
       expect(queue.size()).toBe(1);
       
       queue.enqueue(mockPredictions);
@@ -67,7 +67,7 @@ describe('SuggestionQueue', () => {
     });
 
     it('should not navigate past end', () => {
-      queue.enqueue([mockPredictions[0]]);
+      queue.enqueue([mockPredictions[0]!]);
       const next = queue.next();
       expect(next).toBeNull();
       expect(queue.getCurrentIndex()).toBe(0);
@@ -121,7 +121,7 @@ describe('SuggestionQueue', () => {
     });
 
     it('should handle clearing via dequeue', () => {
-      queue.enqueue([mockPredictions[0]]);
+      queue.enqueue([mockPredictions[0]!]);
       queue.dequeue();
       
       expect(queue.size()).toBe(0);

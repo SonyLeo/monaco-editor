@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
-import { TreeSitterAnalyzer } from '../analysis/TreeSitterAnalyzer';
+import { TreeSitterAnalyzer } from '@/analysis/TreeSitterAnalyzer';
 
 describe('TreeSitterAnalyzer', () => {
   let analyzer: TreeSitterAnalyzer;

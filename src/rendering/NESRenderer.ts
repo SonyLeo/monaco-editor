@@ -11,11 +11,11 @@
  */
 
 import * as monaco from 'monaco-editor';
-import type { Prediction, ChangeType } from '../types/index';
+import type { Prediction, ChangeType } from '@/types';
 import { DecorationManager } from './DecorationManager';
 import { ViewZoneManager } from './ViewZoneManager';
-import { CoordinateFixer } from '../utils/CoordinateFixer';
-import { logger } from '../utils/logger';
+import { CoordinateFixer } from '@/utils/CoordinateFixer';
+import { logger } from '@/utils/logger';
 
 export class NESRenderer {
   private currentPrediction: Prediction | null = null;

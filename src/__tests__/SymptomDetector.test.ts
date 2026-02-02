@@ -1,7 +1,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { SymptomDetector } from '../analysis/SymptomDetector';
-import type { EditRecord } from '../types/index';
+import { SymptomDetector } from '@/analysis/SymptomDetector';
+import type { EditRecord } from '@/types';
 import type * as monaco from 'monaco-editor';
 
 describe('SymptomDetector - Ultimate Coverage', () => {
@@ -115,12 +115,12 @@ describe('SymptomDetector - Ultimate Coverage', () => {
     it('should detect loop and conditional', () => {
        detector.setModel(createMockModel('if (x) {}'));
        const editIf = createEditRecord({
-         context: { syntaxContext: { inConditional: true } as any, astNode: { type: 'if_statement', text: 'if(x)' } as any }
+         context: { lineContent: 'if (x) {}', syntaxContext: { inConditional: true } as any, astNode: { type: 'if_statement', text: 'if(x)' } as any }
        });
        expect(detector.preparePayload([editIf])?.diffSummary).toBe("Editing conditional logic");
 
        const editLoop = createEditRecord({
-         context: { syntaxContext: { inLoop: true } as any, astNode: { type: 'for_statement', text: 'for...' } as any }
+         context: { lineContent: 'for (...) {}', syntaxContext: { inLoop: true } as any, astNode: { type: 'for_statement', text: 'for...' } as any }
        });
        expect(detector.preparePayload([editLoop])?.diffSummary).toBe("Editing loop logic");
     });

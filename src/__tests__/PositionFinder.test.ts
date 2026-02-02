@@ -1,7 +1,7 @@
 ﻿
 import { describe, it, expect, vi } from 'vitest';
-import { PositionFinder, type Context } from '../utils/PositionFinder';
-import { logger } from '../utils/logger';
+import { PositionFinder, type Context } from '@/utils/PositionFinder';
+import { logger } from '@/utils/logger';
 
 describe('PositionFinder - Hardcore Coverage', () => {
     vi.spyOn(logger, 'warn').mockImplementation(() => {});

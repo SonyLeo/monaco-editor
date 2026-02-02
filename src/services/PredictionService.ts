@@ -2,7 +2,7 @@
  * Prediction Service - API 调用服务
  */
 
-import type { NESPayload, Prediction } from '../types/index';
+import type { NESPayload, Prediction } from '@/types';
 
 export class PredictionService {
   constructor(
