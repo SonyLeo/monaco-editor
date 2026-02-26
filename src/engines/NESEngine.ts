@@ -11,6 +11,9 @@ import { NESRenderer } from '../rendering/NESRenderer';
 import { DiffCalculator } from '../utils/DiffCalculator';
 import { PositionFinder } from '../utils/PositionFinder';
 import { logger } from '../utils/logger';
+import { analytics } from '../utils/Analytics';
+import { distance } from 'fastest-levenshtein';
+import { digest } from 'ohash';
 
 export class NESEngine {
   private state: 'SLEEPING' | 'DIAGNOSING' | 'SUGGESTING' = 'SLEEPING';
@@ -19,7 +22,7 @@ export class NESEngine {
   private renderer: NESRenderer;
   private abortController: AbortController | null = null;
   private onEditApplied?: (lineNumber: number) => void;
-  private requestSnapshot: { timestamp: number; codeHash: string } | null = null; // 请求时的代码快照
+  private requestSnapshot: { timestamp: number; codeHash: string; editHistory: EditRecord[] } | null = null; // 请求时的代码快照
 
   constructor(
     private editor: monaco.editor.IStandaloneCodeEditor,
@@ -55,13 +58,31 @@ export class NESEngine {
     if (!payload) {
       return;
     }
-
-    // ✅ 记录请求时的代码快照
+    
+    // 记录触发事件
     const model = this.editor.getModel();
+    if (model) {
+      const position = this.editor.getPosition();
+      if (position) {
+        const lineContent = model.getLineContent(position.lineNumber);
+        analytics.logEvent({
+          engine: 'nes',
+          action: 'trigger',
+          context: {
+            lineLength: lineContent.length,
+            isAtLineEnd: position.column === model.getLineMaxColumn(position.lineNumber),
+            debounceMs: 3000,
+          },
+        });
+      }
+    }
+
+    // ✅ 记录请求时的代码快照（包含编辑历史）
     if (model) {
       this.requestSnapshot = {
         timestamp: Date.now(),
-        codeHash: this.hashCode(model.getValue())
+        codeHash: this.hashCode(model.getValue()),
+        editHistory: editHistory
       };
     }
 
@@ -131,48 +152,108 @@ export class NESEngine {
     // ✅ State Freshness Check: 验证代码是否在请求期间被修改
     if (this.requestSnapshot) {
       const currentHash = this.hashCode(model.getValue());
+      const hashChanged = currentHash !== this.requestSnapshot.codeHash;
       
-      if (currentHash !== this.requestSnapshot.codeHash) {
+      logger.debug('[NESEngine] Freshness check:', {
+        requestHash: this.requestSnapshot.codeHash.substring(0, 8),
+        currentHash: currentHash.substring(0, 8),
+        changed: hashChanged,
+        timeSinceRequest: Date.now() - this.requestSnapshot.timestamp
+      });
+      
+      if (hashChanged) {
         const timeSinceRequest = Date.now() - this.requestSnapshot.timestamp;
-        logger.warn(
-          `[NESEngine] Code changed during request (${timeSinceRequest}ms). ` +
-          `Predictions may be stale. Consider filtering.`
-        );
         
-        // 可选策略：如果变化太大，直接丢弃所有预测
-        // 这里我们选择继续，但依赖后续的行内容匹配来过滤
-        // 如果你想更激进，可以取消注释下面这行：
-        // this.sleep(); return;
+        // ✅ 智能策略：检查变化是否影响预测
+        // 如果所有预测的目标行都还存在且内容匹配，则继续
+        // 否则丢弃所有预测
+        const allTargetLinesValid = predictions.every(pred => {
+          if (pred.targetLine < 1 || pred.targetLine > model.getLineCount()) {
+            return false;
+          }
+          
+          if (pred.originalLineContent) {
+            const actualLine = model.getLineContent(pred.targetLine);
+            const normalize = (s: string) => s.replace(/\s+/g, ' ').trim();
+            return normalize(actualLine) === normalize(pred.originalLineContent);
+          }
+          
+          return true;
+        });
+        
+        if (!allTargetLinesValid) {
+          logger.warn(
+            `[NESEngine] Code changed during request (${timeSinceRequest}ms) ` +
+            `and predictions are affected. Discarding.`
+          );
+          
+          this.sleep();
+          return;
+        } else {
+          logger.info(
+            `[NESEngine] Code changed during request (${timeSinceRequest}ms) ` +
+            `but predictions are still valid. Continuing.`
+          );
+          
+        }
       }
+    } else {
+      logger.warn('[NESEngine] No request snapshot available, cannot verify freshness');
     }
 
-    // ✅ 去重：移除重复预测（相同 targetLine + 相同 suggestionText）
-    // 原因：后端 AI 可能返回重复预测，导致用户按多次 Tab 会重复插入相同内容
-    const uniquePredictions = predictions.filter((pred, index, arr) => {
-      // ✅ 过滤 no-op 预测（suggestionText 和 originalLineContent 完全相同）
-      if (pred.suggestionText === pred.originalLineContent) {
+    // ✅ 第一步：过滤无意义预测（suggestionText 和 originalLineContent 完全相同）
+    const meaningfulPredictions = predictions.filter(pred => {
+      const normalize = (s: string) => s.replace(/\s+/g, ' ').trim();
+      const isMeaningful = normalize(pred.suggestionText) !== normalize(pred.originalLineContent || '');
+      
+      if (!isMeaningful) {
         logger.warn(`[NESEngine] Filtered no-op prediction for line ${pred.targetLine}: suggestion equals original`);
+      }
+      
+      return isMeaningful;
+    });
+
+    // ✅ 第二步：过滤编辑冲突（正在编辑的行）
+    const editedLines = new Set(
+      this.requestSnapshot?.editHistory.map(edit => edit.lineNumber) || []
+    );
+    
+    const nonConflictingPredictions = meaningfulPredictions.filter(pred => {
+      const isConflicting = editedLines.has(pred.targetLine);
+      
+      if (isConflicting) {
+        logger.warn(`[NESEngine] Filtered conflicting prediction for line ${pred.targetLine}: line is being edited`);
+      }
+      
+      return !isConflicting;
+    });
+
+    // ✅ 第三步：去重 + 同行只保留最高优先级
+    // 按优先级排序（高优先级在前）
+    const sortedByPriority = [...nonConflictingPredictions].sort((a, b) => {
+      const priorityA = a.priority || 0;
+      const priorityB = b.priority || 0;
+      return priorityB - priorityA; // 降序
+    });
+    
+    // 同一行只保留第一个（最高优先级）
+    const seenLines = new Set<number>();
+    const uniquePredictions = sortedByPriority.filter(pred => {
+      if (seenLines.has(pred.targetLine)) {
+        logger.debug(`[NESEngine] Filtered duplicate line ${pred.targetLine}: keeping higher priority prediction`);
         return false;
       }
-
-      // 检查当前预测之前是否已有相同的预测
-      const isDuplicate = arr.slice(0, index).some(p => 
-        p.targetLine === pred.targetLine && 
-        p.suggestionText === pred.suggestionText
-      );
-      
-      if (isDuplicate) {
-        logger.debug(`[NESEngine] Filtered duplicate prediction for line ${pred.targetLine}`);
-      }
-      
-      return !isDuplicate;
+      seenLines.add(pred.targetLine);
+      return true;
     });
 
     if (uniquePredictions.length === 0) {
-      logger.warn('[NESEngine] All predictions filtered out (duplicates or invalid)');
+      logger.warn('[NESEngine] All predictions filtered out (no-op, conflicting, or duplicate)');
       this.sleep();
       return;
     }
+    
+    logger.info(`[NESEngine] Filtered predictions: ${predictions.length} → ${uniquePredictions.length} (removed ${predictions.length - uniquePredictions.length})`);
 
     // 过滤并处理每个预测
     const processedPredictions = uniquePredictions
@@ -183,27 +264,34 @@ export class NESEngine {
           return false;
         }
 
-        // 尝试修正行号（容错处理）
-        // 如果 targetLine 内容不匹配，尝试在附近查找
+        // 内容匹配检查（使用相似度而不是严格匹配）
         if (pred.originalLineContent) {
-          const correctedLine = this.findBestMatchingLine(model, pred.targetLine, pred.originalLineContent);
+          const actualLine = model.getLineContent(pred.targetLine);
+          const normalize = (s: string) => s.replace(/\s+/g, ' ').trim();
+          const expected = normalize(pred.originalLineContent);
+          const actual = normalize(actualLine);
           
-          if (correctedLine !== -1) {
-            if (correctedLine !== pred.targetLine) {
-              logger.debug(`[NESEngine] Corrected line number ${pred.targetLine} -> ${correctedLine}`);
-              pred.targetLine = correctedLine;
-            }
-          } else {
-            // 只有当找不到高相似度行时才记录警告并跳过
-            // 对于 INSERT/DELETE，需要特殊放宽条件，暂不处理
-             const actualLine = model.getLineContent(pred.targetLine);
-             logger.warn('[NESEngine] Content mismatch, skipping prediction:', {
-               targetLine: pred.targetLine,
-               expected: pred.originalLineContent,
-               actual: actualLine,
-             });
-             return false;
+          // 完全匹配 → 接受
+          if (actual === expected) {
+            return true;
           }
+          
+          // 计算相似度
+          const similarity = 1 - distance(expected, actual) / Math.max(expected.length, actual.length);
+          
+          // 相似度 > 80% → 接受（容忍小的变化，如添加空格、分号等）
+          if (similarity > 0.8) {
+            return true;
+          }
+          
+          // 相似度太低 → 跳过
+          logger.warn('[NESEngine] Content mismatch (similarity: ' + (similarity * 100).toFixed(1) + '%), skipping prediction:', {
+            targetLine: pred.targetLine,
+            expected: pred.originalLineContent,
+            actual: actualLine,
+          });
+          
+          return false;
         }
         return true;
       })
@@ -264,15 +352,9 @@ export class NESEngine {
       };
     });
 
-    // 按优先级排序
-    const sorted = processedPredictions.sort((a, b) => {
-      const priorityA = a.priority || 0;
-      const priorityB = b.priority || 0;
-      return priorityB - priorityA;
-    });
-
     // 一次性加入队列（传入整个数组）
-    this.suggestionQueue.enqueue(sorted);
+    // 注意：已经按优先级排序，无需再次排序
+    this.suggestionQueue.enqueue(processedPredictions);
 
     this.state = 'SUGGESTING';
     this.showFirstSuggestion();
@@ -317,6 +399,15 @@ export class NESEngine {
       return;
     }
 
+    // 记录接受事件
+    analytics.logEvent({
+      engine: 'nes',
+      action: 'accept',
+      context: {
+        confidence: prediction.confidence,
+      },
+    });
+
     // 使用新的 API：applySuggestion（自动根据 changeType 处理）
     this.renderer.applySuggestion(prediction);
 
@@ -341,6 +432,15 @@ export class NESEngine {
     if (!prediction) {
       return;
     }
+
+    // 记录拒绝事件
+    analytics.logEvent({
+      engine: 'nes',
+      action: 'reject',
+      context: {
+        confidence: prediction.confidence,
+      },
+    });
 
     // 清除渲染
     this.renderer.clear();
@@ -465,50 +565,21 @@ export class NESEngine {
   }
 
   /**
-   * 计算字符串的简单哈希值（用于快速比较代码是否变化）
+   * 计算字符串的哈希值（用于快速比较代码是否变化）
    */
   private hashCode(str: string): string {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      const char = str.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // Convert to 32-bit integer
-    }
-    return hash.toString(16);
+    return digest(str);
   }
 
   /**
-   * 计算两个字符串的相似度（Levenshtein 距离，空间优化版）
+   * 计算两个字符串的相似度
    */
   private calculateSimilarity(str1: string, str2: string): number {
     if (str1 === str2) return 1;
     if (str1.length === 0 || str2.length === 0) return 0;
 
-    const len1 = str1.length;
-    const len2 = str2.length;
-
-    // 空间优化：只使用两行（O(min(len1, len2)) 空间）
-    let prevRow = Array.from({ length: len2 + 1 }, (_, i) => i);
-    let currRow = new Array(len2 + 1);
-
-    for (let i = 1; i <= len1; i++) {
-      currRow[0] = i;
-      
-      for (let j = 1; j <= len2; j++) {
-        const cost = str1[i - 1] === str2[j - 1] ? 0 : 1;
-        currRow[j] = Math.min(
-          prevRow[j]! + 1,        // 删除
-          currRow[j - 1]! + 1,    // 插入
-          prevRow[j - 1]! + cost  // 替换
-        );
-      }
-      
-      // 交换行
-      [prevRow, currRow] = [currRow, prevRow];
-    }
-
-    const distance = prevRow[len2]!;
-    const maxLen = Math.max(len1, len2);
-    return 1 - distance / maxLen;
+    const dist = distance(str1, str2);
+    const maxLen = Math.max(str1.length, str2.length);
+    return 1 - dist / maxLen;
   }
 }

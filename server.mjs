@@ -77,8 +77,6 @@ import { logPromptInteraction, clearLogs } from './server/utils/promptLogger.mjs
 app.post('/api/completion', async (req, res) => {
   try {
     const { prefix, suffix } = req.body;
-    
-    console.log(`⚡ [Fast] Completion request (${prefix?.length || 0} chars prefix)`);
 
     const completion = await callFIMAPI(config.provider, prefix, suffix, config.apiKey);
 
@@ -109,27 +107,12 @@ app.post('/api/next-edit-prediction', async (req, res) => {
   const currentRequestId = requestId || `req_${Date.now()}`;
 
   try {
-    console.log(`🧠 [Slow] NES Prediction (Request ID: ${currentRequestId})`);
-    
-    // 详细日志
-    console.log('📦 [Request Data]');
-    console.log('  diffSummary:', diffSummary);
-    console.log('  editHistory:', editHistory ? `${editHistory.length} edits` : 'none');
-    
     if (!codeWindow || !diffSummary) {
       return res.status(400).json({ error: '缺少必要参数' });
     }
 
     // 使用格式化工具构建 User Prompt
     const userPrompt = buildNESUserPrompt(codeWindow, windowInfo, diffSummary, editHistory, userFeedback);
-    
-    // 调试模式
-    if (process.env.DEBUG_PROMPT === 'true') {
-      console.log('\n========== FULL PROMPT ==========');
-      console.log('SYSTEM:', NES_SYSTEM_PROMPT.substring(0, 500) + '...');
-      console.log('\nUSER:', userPrompt);
-      console.log('==================================\n');
-    }
 
     const content = await callChatAPI(config.provider, NES_SYSTEM_PROMPT, userPrompt, config.apiKey);
 

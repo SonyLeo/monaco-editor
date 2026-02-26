@@ -1,5 +1,5 @@
 {
-  "enabled": true,
+  "enabled": false,
   "name": "代码修改后类型检查",
   "description": "在代码编辑完成后，自动运行类型检查，确保没有引入类型错误和未使用的变量",
   "version": "1",

@@ -1,9 +1,15 @@
 /**
  * 代码分析类型定义
- * 职责：Tree-sitter 分析相关的接口（AST、符号、语法上下文）
+ * 职责：代码分析相关的接口（AST、符号、语法上下文）
  */
 
-import type { Point } from 'web-tree-sitter';
+/**
+ * 位置信息（兼容 Tree-sitter 和 Acorn）
+ */
+export interface Point {
+  row: number;
+  column: number;
+}
 
 /**
  * AST 节点信息

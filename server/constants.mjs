@@ -48,7 +48,7 @@ export const QWEN_FIM_CONFIG = {
  */
 export const QWEN_CHAT_CONFIG = {
   API_URL: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
-  MODEL: 'qwen3-coder-flash',
+  MODEL: 'qwen3.5-flash',
   DEFAULT_TEMPERATURE: 0.1,
   MAX_TOKENS: 1024, 
   TOP_P: 0.95,

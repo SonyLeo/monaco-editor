@@ -50,11 +50,9 @@ function tryFixTruncatedJSON(jsonStr) {
     const lastCompleteObj = jsonStr.lastIndexOf('},');
     if (lastCompleteObj > 0) {
       jsonStr = jsonStr.substring(0, lastCompleteObj + 1) + '\n    ]\n}';
-      console.log('🔧 Attempting to fix truncated predictions array');
       
       try {
         const result = JSON.parse(jsonStr);
-        console.log('✅ Successfully fixed truncated JSON');
         return result;
       } catch (e3) {
         console.error('❌ Fix failed:', e3.message);
@@ -70,18 +68,12 @@ function tryFixTruncatedJSON(jsonStr) {
  */
 export function formatPredictionResponse(parsedResult, requestId) {
   if (!parsedResult) {
-    console.log('ℹ️ [Slow] No valid JSON response');
     return {
       predictions: [],
       totalCount: 0,
       hasMore: false,
       requestId
     };
-  }
-
-  // 记录分析过程 (Chain of Thought)
-  if (parsedResult.analysis) {
-    console.log('🤔 [AI Analysis]', JSON.stringify(parsedResult.analysis, null, 2));
   }
 
   // 构建 symptom 对象（从 analysis 提取）
@@ -108,16 +100,6 @@ export function formatPredictionResponse(parsedResult, requestId) {
       requestId
     }));
     
-    console.log(`✅ [Slow] ${predictions.length} Predictions returned`);
-    predictions.forEach((pred, index) => {
-      console.log(`  [${index + 1}] Line ${pred.targetLine}: ${pred.explanation} (priority: ${pred.priority || 'N/A'}, confidence: ${pred.confidence})`);
-    });
-    
-    // 显示模式识别结果
-    if (parsedResult.analysis?.pattern) {
-      console.log(`🔍 [Pattern] ${parsedResult.analysis.pattern}`);
-    }
-    
     return {
       symptom,
       predictions,
@@ -135,12 +117,6 @@ export function formatPredictionResponse(parsedResult, requestId) {
       priority: 1
     };
     
-    console.log(`✅ [Slow] Single Prediction: Line ${prediction.targetLine} (${prediction.explanation})`);
-    
-    if (parsedResult.analysis?.pattern) {
-      console.log(`🔍 [Pattern] ${parsedResult.analysis.pattern}`);
-    }
-    
     return {
       symptom,
       predictions: [prediction],
@@ -150,7 +126,6 @@ export function formatPredictionResponse(parsedResult, requestId) {
     };
   }
   
-  console.log('ℹ️ [Slow] AI decided no edit is needed (predictions is null)');
   return {
     symptom,
     predictions: [],

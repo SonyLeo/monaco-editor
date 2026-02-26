@@ -19,8 +19,6 @@ class QwenFIMClient extends BaseModelClient {
     // 使用 FIM markers 构建 prompt
     const fimPrompt = `${FIM_CONFIG.MARKERS.PREFIX}${prefix}${FIM_CONFIG.MARKERS.SUFFIX}${suffix || ''}${FIM_CONFIG.MARKERS.MIDDLE}`;
     
-    console.log('🎯 Qwen FIM Prompt 长度:', fimPrompt.length);
-    
     return {
       model: this.config.MODEL,
       prompt: fimPrompt,
@@ -80,7 +78,7 @@ class QwenChatClient extends BaseModelClient {
   buildRequestBody(prompt, maxTokens, stopSequences) {
     const { systemPrompt, userPrompt } = prompt;
 
-    return {
+    const requestBody = {
       model: this.config.MODEL,
       messages: [
         { role: 'system', content: systemPrompt },
@@ -93,7 +91,9 @@ class QwenChatClient extends BaseModelClient {
       stop: stopSequences,
       presence_penalty: this.config.PRESENCE_PENALTY,
       response_format: this.config.RESPONSE_FORMAT,
+      enable_thinking: false
     };
+    return requestBody;
   }
 
   /**

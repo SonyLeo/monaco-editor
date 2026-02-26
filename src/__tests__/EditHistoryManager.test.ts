@@ -1,5 +1,5 @@
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { EditHistoryManager } from '@/services/EditHistoryManager';
 import type * as monaco from 'monaco-editor';
 
@@ -33,7 +33,6 @@ describe('EditHistoryManager - Ultimate Coverage', () => {
   };
 
   beforeEach(() => {
-    vi.spyOn(EditHistoryManager.prototype as any, 'initTreeSitter').mockImplementation(() => Promise.resolve());
     manager = new EditHistoryManager(initialContent);
   });
 
@@ -148,22 +147,6 @@ describe('EditHistoryManager - Ultimate Coverage', () => {
         expect(manager.getRecentEdits(1).length).toBe(1);
         manager.clear();
         expect(manager.getRecentEdits().length).toBe(0);
-    });
-  });
-
-  describe('Tree-sitter', () => {
-    it('should handle enrichment errors', () => {
-      // 由于使用单例模式，treeSitterAnalyzer 初始时为 null
-      // 需要先设置一个 mock 实例
-      const mockAnalyzer = {
-        analyzeEdit: vi.fn().mockImplementation(() => { throw new Error('Mock error'); }),
-      };
-      
-      (manager as any).treeSitterAnalyzer = mockAnalyzer;
-      (manager as any).treeSitterEnabled = true;
-      
-      manager.recordEdit(createChange('x', { startLine: 1, startCol: 1, endLine: 1, endCol: 1 }, 0), createMockModel('x'));
-      expect(manager.getRecentEdits().length).toBe(1);
     });
   });
 });

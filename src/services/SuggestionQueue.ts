@@ -14,7 +14,6 @@ export class SuggestionQueue {
   enqueue(predictions: Prediction[]): void {
     this.queue = predictions;
     this.currentIndex = 0;
-    console.log('[SuggestionQueue] Enqueued', predictions.length, 'predictions');
   }
 
   /**

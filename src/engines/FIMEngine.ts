@@ -5,6 +5,7 @@
 import * as monaco from 'monaco-editor';
 import { PredictionService } from '../services/PredictionService';
 import { logger } from '../utils/logger';
+import { analytics } from '../utils/Analytics';
 
 export class FIMEngine {
   private disposable: monaco.IDisposable | null = null;
@@ -15,6 +16,8 @@ export class FIMEngine {
   private lastGhostTextTimestamp = 0;
   private lastGhostTextContent = '';
   private ghostTextDecisionCallbacks: Array<() => void> = [];
+  
+  private lastEditTime = 0;
 
   constructor(endpoint: string) {
     this.predictionService = new PredictionService(endpoint);
@@ -35,6 +38,26 @@ export class FIMEngine {
 
           const prefix = fullText.substring(0, offset);
           const suffix = fullText.substring(offset);
+          
+          // 收集触发上下文
+          const lineContent = model.getLineContent(position.lineNumber);
+          const lineLength = lineContent.length;
+          const isAtLineEnd = position.column === model.getLineMaxColumn(position.lineNumber);
+          const timeSinceLastEdit = Date.now() - this.lastEditTime;
+          
+          // 记录触发事件
+          analytics.logEvent({
+            engine: 'fim',
+            action: 'trigger',
+            context: {
+              lineLength,
+              isAtLineEnd,
+              timeSinceLastEdit,
+              debounceMs: 300,
+            },
+          });
+          
+          this.lastEditTime = Date.now();
 
           // 创建 AbortController
           const abortController = new AbortController();
@@ -48,6 +71,11 @@ export class FIMEngine {
           if (!completion || completion.trim() === '') {
             this.ghostTextVisible = false;
             this.lastGhostTextContent = '';
+            analytics.logEvent({
+              engine: 'fim',
+              action: 'reject',
+              context: { lineLength, isAtLineEnd },
+            });
             return { items: [] };
           }
 
@@ -55,6 +83,11 @@ export class FIMEngine {
           if (this.checkSuffixDuplication(completion, suffix)) {
             this.ghostTextVisible = false;
             this.lastGhostTextContent = '';
+            analytics.logEvent({
+              engine: 'fim',
+              action: 'reject',
+              context: { lineLength, isAtLineEnd },
+            });
             return { items: [] };
           }
 
@@ -186,6 +219,13 @@ export class FIMEngine {
     if (this.ghostTextVisible) {
       this.ghostTextVisible = false;
       this.lastGhostTextContent = '';
+      
+      // 记录接受事件
+      analytics.logEvent({
+        engine: 'fim',
+        action: 'accept',
+        context: {},
+      });
       
       // 触发所有等待回调
       const callbacks = [...this.ghostTextDecisionCallbacks];
