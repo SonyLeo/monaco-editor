@@ -1,0 +1,18 @@
+{
+  "enabled": true,
+  "name": "文档同步检查",
+  "description": "当编辑关键文件（实施指南、优化方案、变更日志）时，提醒保持文档同步更新",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "IMPLEMENTATION_GUIDE.md",
+      "OPTIMIZATION_PROPOSAL.md",
+      "CHANGELOG.md"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "检测到关键文档被修改。请确认是否需要同步更新其他相关文档：\n\n如果修改了 IMPLEMENTATION_GUIDE.md：\n- 检查 CHANGELOG.md 是否需要更新进度\n- 检查 OPTIMIZATION_PROPOSAL.md 是否需要更新方案\n\n如果修改了 OPTIMIZATION_PROPOSAL.md：\n- 检查 IMPLEMENTATION_GUIDE.md 是否需要更新实施步骤\n- 检查 CHANGELOG.md 是否需要记录方案变更\n\n如果修改了 CHANGELOG.md：\n- 确保格式一致\n- 确保所有阶段状态清晰\n- 确保时间戳准确\n\n如果所有文档已同步，请回复\"文档已同步\"。"
+  }
+}

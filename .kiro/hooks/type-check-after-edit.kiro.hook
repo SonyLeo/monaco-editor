@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "name": "代码修改后类型检查",
+  "description": "在代码编辑完成后，自动运行类型检查，确保没有引入类型错误和未使用的变量",
+  "version": "1",
+  "when": {
+    "type": "postToolUse",
+    "toolTypes": [
+      "write"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "检测到 write 工具被使用。请执行以下检查：\n\n### 1. 检查文件类型\n只对以下代码文件运行类型检查：\n- TypeScript: .ts, .tsx\n- JavaScript: .js, .jsx\n- Vue: .vue\n\n如果是以下文件类型，直接跳过：\n- Hook 配置：.hook, .kiro.hook\n- 配置文件：.json, .yaml, .yml\n- 文档文件：.md, .txt\n- 样式文件：.css, .scss, .less\n- 其他非代码文件\n\n回复\"跳过检查\"。\n\n### 2. 运行类型检查\n对代码文件运行 getDiagnostics，检查：\n- 类型错误（Error）\n- 未使用的变量（Warning）\n- 未使用的导入（Warning）\n\n### 3. 如果发现问题\n- 立即修复类型错误\n- 移除未使用的变量和导入\n- 再次运行 getDiagnostics 确认修复\n\n### 4. 如果没有问题\n回复\"类型检查通过 ✅\"\n\n⚠️ 重要：不要继续下一步工作，直到所有类型问题都解决。"
+  }
+}

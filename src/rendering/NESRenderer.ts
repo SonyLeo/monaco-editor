@@ -15,7 +15,6 @@ import type { Prediction, ChangeType } from '@/types';
 import { DecorationManager } from './DecorationManager';
 import { ViewZoneManager } from './ViewZoneManager';
 import { CoordinateFixer } from '@/utils/CoordinateFixer';
-import { logger } from '@/utils/logger';
 
 export class NESRenderer {
   private currentPrediction: Prediction | null = null;
@@ -37,15 +36,11 @@ export class NESRenderer {
   }
 
   /**
-   * 初始化 Tree-sitter（异步）
+   * 初始化（移除 Tree-sitter 初始化，因为已切换到 Acorn）
    */
   private async initTreeSitter(): Promise<void> {
-    try {
-      await this.coordinateFixer.initTreeSitter();
-      this.treeSitterInitialized = true;
-    } catch (error) {
-      logger.warn('[NESRenderer] Tree-sitter init failed, Layer 2 disabled:', error);
-    }
+    // Acorn 不需要异步初始化
+    this.treeSitterInitialized = true;
   }
 
   /**

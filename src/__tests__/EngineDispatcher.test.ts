@@ -326,7 +326,6 @@ describe('EngineDispatcher - FIM/NES Coordination', () => {
 
   describe('Edge Cases', () => {
     it('should handle NES edit callback setting protection period', () => {
-      const beforeTime = Date.now();
       onEditAppliedCallback!();
       
       // Protection period should be set

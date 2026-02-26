@@ -1,51 +1,28 @@
 ﻿/**
- * Coordinate Fixer - 坐标修复工具（增强版）
+ * Coordinate Fixer - 坐标修复工具（Acorn 版本）
  * 
- * 实现 3 层降级策略（方案 C）：
+ * 实现 3 层降级策略：
  * 1. Context-based matching (PositionFinder) - 90%+ 准确率
- * 2. Tree-sitter AST matching (TreeSitterAnalyzer) - 99%+ 准确率
+ * 2. Acorn AST matching (AcornAnalyzer) - 95%+ 准确率
  * 3. fast-diff fallback (DiffCalculator) - 70%+ 准确率
  */
 
-import type { Prediction } from '@/types';
+import type { Prediction } from '@/types/prediction';
 import { PositionFinder } from './PositionFinder';
 import { DiffCalculator } from './DiffCalculator';
-import { getTreeSitterInstance } from '@/analysis/TreeSitterInstance';
-import type { TreeSitterAnalyzer } from '@/analysis/TreeSitterAnalyzer';
+import { AcornAnalyzer } from '@/analysis/AcornAnalyzer';
 import { logger } from './logger';
 
 export class CoordinateFixer {
-  private treeSitterAnalyzer: TreeSitterAnalyzer | null = null;
-  private treeSitterInitPromise: Promise<void> | null = null;
-  private fullCode: string = '';  // 完整代码（用于 Tree-sitter 分析）
+  private acornAnalyzer: AcornAnalyzer;
+  private fullCode: string = '';  // 完整代码（用于 AST 分析）
 
-  /**
-   * 初始化 Tree-sitter（异步，使用共享实例）
-   * 调用此方法后，Layer 2 将可用
-   */
-  async initTreeSitter(): Promise<void> {
-    if (this.treeSitterAnalyzer?.isInitialized()) {
-      return;
-    }
-
-    if (this.treeSitterInitPromise) {
-      return this.treeSitterInitPromise;
-    }
-
-    this.treeSitterInitPromise = getTreeSitterInstance()
-      .then((instance) => {
-        this.treeSitterAnalyzer = instance;
-      })
-      .catch((error) => {
-        logger.warn('[CoordinateFixer] Tree-sitter init failed, Layer 2 disabled:', error);
-        this.treeSitterAnalyzer = null;
-      });
-
-    return this.treeSitterInitPromise;
+  constructor() {
+    this.acornAnalyzer = new AcornAnalyzer();
   }
 
   /**
-   * 设置完整代码（用于 Tree-sitter 分析）
+   * 设置完整代码（用于 AST 分析）
    */
   setFullCode(code: string): void {
     this.fullCode = code;
@@ -192,26 +169,30 @@ export class CoordinateFixer {
       logger.warn('[CoordinateFixer] ⚠️ Layer 1 failed, trying Layer 2...');
     }
 
-    // Layer 2: Tree-sitter AST matching
-    if (this.treeSitterAnalyzer?.isInitialized() && this.fullCode) {
+    // Layer 2: Acorn AST matching
+    if (this.fullCode) {
       // 优先使用 AI 提供的 query 字段
       if (prediction.query) {
-        const position = this.treeSitterAnalyzer.findByQuery(this.fullCode, {
-          lineNumber: prediction.targetLine,
-          nodeType: prediction.query.nodeType,
-          value: prediction.query.value,
-          parentType: prediction.query.parentType,
-          index: prediction.query.index
-        });
-        
-        if (position) {
-          prediction.wordReplaceInfo = {
-            word: prediction.query.value,
-            replacement: replacementWord,  // 只使用替换词，不是整行
-            startColumn: position.startColumn,
-            endColumn: position.endColumn
-          };
-          return;
+        try {
+          const ast = this.acornAnalyzer.parse(this.fullCode);
+          const candidates = this.acornAnalyzer.findNodesByType(ast, prediction.query.nodeType);
+          
+          // 找到目标行附近的节点
+          const targetNode = candidates.find(node => 
+            node.loc && Math.abs(node.loc.start.line - prediction.targetLine) <= 2
+          );
+          
+          if (targetNode && targetNode.loc) {
+            prediction.wordReplaceInfo = {
+              word: prediction.query.value,
+              replacement: replacementWord,
+              startColumn: targetNode.loc.start.column + 1, // Monaco 使用 1-based
+              endColumn: targetNode.loc.end.column + 1
+            };
+            return;
+          }
+        } catch (error) {
+          logger.warn('[CoordinateFixer] Acorn query failed:', error);
         }
       }
       
@@ -219,21 +200,24 @@ export class CoordinateFixer {
       const targetText = prediction.context?.target || this.extractTargetFromDiff(prediction, lineContent);
       
       if (targetText) {
-        const position = this.treeSitterAnalyzer.findTargetPosition(
-          this.fullCode,
-          prediction.targetLine,
-          targetText,
-          'identifier'  // 默认查找标识符
-        );
-        
-        if (position) {
-          prediction.wordReplaceInfo = {
-            word: targetText,
-            replacement: replacementWord,  // 只使用替换词，不是整行
-            startColumn: position.startColumn,
-            endColumn: position.endColumn
-          };
-          return;
+        try {
+          const ast = this.acornAnalyzer.parse(this.fullCode);
+          const node = this.acornAnalyzer.findNodeAtPosition(ast, prediction.targetLine, 0);
+          
+          if (node && node.loc) {
+            const nodeText = this.acornAnalyzer.getNodeText(this.fullCode, node);
+            if (nodeText.includes(targetText)) {
+              prediction.wordReplaceInfo = {
+                word: targetText,
+                replacement: replacementWord,
+                startColumn: node.loc.start.column + 1,
+                endColumn: node.loc.end.column + 1
+              };
+              return;
+            }
+          }
+        } catch (error) {
+          logger.warn('[CoordinateFixer] Acorn fallback failed:', error);
         }
       }
       
@@ -299,28 +283,30 @@ export class CoordinateFixer {
     } else {
     }
 
-    // Layer 2: Tree-sitter AST matching
-    if (this.treeSitterAnalyzer?.isInitialized() && this.fullCode) {
+    // Layer 2: Acorn AST matching
+    if (this.fullCode) {
       // 优先使用 AI 提供的 query 字段
       if (prediction.query) {
-        const position = this.treeSitterAnalyzer.findByQuery(this.fullCode, {
-          lineNumber: prediction.targetLine,
-          nodeType: prediction.query.nodeType,
-          value: prediction.query.value,
-          parentType: prediction.query.parentType,
-          index: prediction.query.index
-        });
-        
-        if (position) {
-          // ⚡ 使用 fast-diff 计算实际插入内容
-          const diffResult = DiffCalculator.calculateInlineInsert(originalLine, prediction.suggestionText);
-          const insertContent = diffResult?.content || prediction.suggestionText;
+        try {
+          const ast = this.acornAnalyzer.parse(this.fullCode);
+          const candidates = this.acornAnalyzer.findNodesByType(ast, prediction.query.nodeType);
           
-          prediction.inlineInsertInfo = {
-            content: insertContent,  // ✅ 只包含插入部分
-            insertColumn: position.endColumn  // 在目标之后插入
-          };
-          return;
+          const targetNode = candidates.find(node => 
+            node.loc && Math.abs(node.loc.start.line - prediction.targetLine) <= 2
+          );
+          
+          if (targetNode && targetNode.loc) {
+            const diffResult = DiffCalculator.calculateInlineInsert(originalLine, prediction.suggestionText);
+            const insertContent = diffResult?.content || prediction.suggestionText;
+            
+            prediction.inlineInsertInfo = {
+              content: insertContent,
+              insertColumn: targetNode.loc.end.column + 1  // 在目标之后插入
+            };
+            return;
+          }
+        } catch (error) {
+          logger.warn('[CoordinateFixer] Acorn query failed:', error);
         }
       }
       
@@ -328,22 +314,22 @@ export class CoordinateFixer {
       const targetText = prediction.context?.target;
       
       if (targetText) {
-        const position = this.treeSitterAnalyzer.findTargetPosition(
-          this.fullCode,
-          prediction.targetLine,
-          targetText
-        );
-        
-        if (position) {
-          // ⚡ 使用 fast-diff 计算实际插入内容
-          const diffResult = DiffCalculator.calculateInlineInsert(originalLine, prediction.suggestionText);
-          const insertContent = diffResult?.content || prediction.suggestionText;
+        try {
+          const ast = this.acornAnalyzer.parse(this.fullCode);
+          const node = this.acornAnalyzer.findNodeAtPosition(ast, prediction.targetLine, 0);
           
-          prediction.inlineInsertInfo = {
-            content: insertContent,  // ✅ 只包含插入部分
-            insertColumn: position.endColumn  // 在目标之后插入
-          };
-          return;
+          if (node && node.loc) {
+            const diffResult = DiffCalculator.calculateInlineInsert(originalLine, prediction.suggestionText);
+            const insertContent = diffResult?.content || prediction.suggestionText;
+            
+            prediction.inlineInsertInfo = {
+              content: insertContent,
+              insertColumn: node.loc.end.column + 1
+            };
+            return;
+          }
+        } catch (error) {
+          logger.warn('[CoordinateFixer] Acorn fallback failed:', error);
         }
       }
       
@@ -392,12 +378,5 @@ export class CoordinateFixer {
     if (targetLine < currentLine) return 'above';
     if (targetLine > currentLine) return 'below';
     return 'current';
-  }
-
-  /**
-   * 检查 Tree-sitter 是否可用
-   */
-  isTreeSitterAvailable(): boolean {
-    return this.treeSitterAnalyzer?.isInitialized() ?? false;
   }
 }

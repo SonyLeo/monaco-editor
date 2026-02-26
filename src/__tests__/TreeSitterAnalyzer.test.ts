@@ -64,16 +64,6 @@ describe('TreeSitterAnalyzer - Complete Coverage', () => {
     });
 
     it('should return null when node not found at position', () => {
-      // Mock tree 和 node
-      const mockNode = {
-        type: 'program',
-        text: 'const x = 1;',
-        startPosition: { row: 0, column: 0 },
-        endPosition: { row: 0, column: 12 },
-        parent: null,
-        children: [],
-      };
-
       const mockTree = {
         rootNode: {
           descendantForPosition: vi.fn().mockReturnValue(null),

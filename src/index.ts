@@ -12,6 +12,9 @@ import { EngineDispatcher } from '@/services/EngineDispatcher';
 import { EditHistoryManager } from '@/services/EditHistoryManager';
 import { logger } from '@/utils/logger';
 
+// 注册调试面板快捷键 (Ctrl+Shift+V)
+import '@/utils/DebugPanel';
+
 // 加载样式
 import './rendering/styles.css';
 
